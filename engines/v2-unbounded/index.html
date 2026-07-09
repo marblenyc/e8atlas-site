@@ -1,0 +1,1046 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>E8 — Deep Engine v2 · unbounded</title>
+<style>
+  :root{
+    --ink:#050810; --ink2:#080D1A;
+    --ivory:#F5E9C8; --champagne:#D9C48C; --butter:#C7AB73;
+    --slate:#8FA0BD; --dim:#6E7F9C;
+    --line:rgba(255,255,255,0.10);
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{
+    background:radial-gradient(ellipse at center, var(--ink2) 0%, var(--ink) 75%);
+    color:var(--ivory);
+    width:100%; height:100%;
+    overflow:hidden;
+    font-family:"Segoe UI", -apple-system, system-ui, sans-serif;
+    user-select:none; -webkit-user-select:none;
+  }
+  #e8{
+    position:fixed; top:0; left:0;
+    width:100%; height:100%;
+    display:block; cursor:grab; touch-action:none;
+  }
+  #e8.dragging{cursor:grabbing}
+
+  .hud{
+    position:fixed; top:0; left:0;
+    padding:18px 22px;
+    pointer-events:none; z-index:10;
+    font-size:12px; letter-spacing:0.04em; line-height:1.55;
+    text-shadow:0 0 12px rgba(0,0,0,0.85);
+  }
+  .hud .title{
+    font-family:Georgia, "Times New Roman", serif;
+    font-size:19px; font-weight:400;
+    color:var(--champagne);
+    margin-bottom:5px; letter-spacing:0.02em;
+  }
+  .hud .eyebrow{
+    font-size:10px; letter-spacing:0.32em; text-transform:uppercase;
+    color:var(--butter); margin-bottom:8px; opacity:0.85;
+  }
+  .hud .stat{ color:var(--slate); font-variant-numeric:tabular-nums; }
+  .hud .stat b{ color:var(--ivory); font-weight:500; }
+  .hud .stat .accent{ color:var(--champagne); }
+
+  .crumbs{
+    position:fixed; top:18px; right:22px;
+    padding:9px 14px;
+    background:rgba(8,13,26,0.55);
+    border:0.5px solid var(--line);
+    border-radius:10px;
+    backdrop-filter:blur(10px) saturate(140%);
+    -webkit-backdrop-filter:blur(10px) saturate(140%);
+    pointer-events:none; z-index:10;
+    font-size:14px; letter-spacing:0.20em;
+    min-height:30px;
+    display:flex; align-items:center; gap:5px;
+    text-shadow:0 0 8px rgba(0,0,0,0.7);
+  }
+  .crumbs .empty{ color:var(--dim); font-size:11px; letter-spacing:0.18em; }
+
+  .controls{
+    position:fixed; bottom:22px; left:50%;
+    transform:translateX(-50%);
+    display:flex; gap:8px;
+    padding:9px 12px;
+    background:rgba(8,13,26,0.55);
+    border:0.5px solid var(--line);
+    border-radius:999px;
+    backdrop-filter:blur(10px) saturate(140%);
+    -webkit-backdrop-filter:blur(10px) saturate(140%);
+    z-index:10; flex-wrap:wrap; justify-content:center;
+    max-width:calc(100vw - 32px);
+  }
+  button{
+    font:inherit; font-size:12.5px;
+    padding:8px 16px; border-radius:999px;
+    cursor:pointer; transition:all 0.15s ease;
+    background:rgba(255,255,255,0.04);
+    color:#DCE6F5;
+    border:0.5px solid rgba(255,255,255,0.18);
+    white-space:nowrap;
+  }
+  button.gold{
+    background:rgba(199,171,115,0.10);
+    color:var(--champagne);
+    border-color:rgba(199,171,115,0.55);
+  }
+  button.on{
+    border-color:var(--champagne);
+    color:var(--champagne);
+    background:rgba(199,171,115,0.08);
+  }
+  button:hover{
+    border-color:var(--champagne);
+    color:var(--champagne);
+    background:rgba(199,171,115,0.08);
+  }
+  button:focus-visible{ outline:2px solid var(--champagne); outline-offset:2px; }
+
+  .help{
+    position:fixed; bottom:80px; left:18px;
+    font-size:10.5px; color:var(--dim);
+    line-height:1.7; letter-spacing:0.05em;
+    pointer-events:none; z-index:10;
+    max-width:340px;
+    text-shadow:0 0 8px rgba(0,0,0,0.8);
+  }
+  .help b{ color:var(--slate); font-weight:500; }
+  .help kbd{
+    font-family:"SF Mono", "Consolas", monospace;
+    background:rgba(255,255,255,0.06);
+    padding:1px 5px; border-radius:3px;
+    border:0.5px solid rgba(255,255,255,0.14);
+    font-size:10px; color:var(--ivory);
+  }
+
+  .fps{
+    position:fixed; bottom:80px; right:22px;
+    font-size:10.5px; color:var(--dim);
+    letter-spacing:0.06em; z-index:10;
+    font-variant-numeric:tabular-nums;
+    pointer-events:none;
+    text-shadow:0 0 8px rgba(0,0,0,0.8);
+  }
+
+  .vignette{
+    position:fixed; inset:0;
+    pointer-events:none; z-index:5;
+    background:radial-gradient(ellipse at center,
+      transparent 50%,
+      rgba(5,8,16,0.55) 100%);
+  }
+</style>
+</head>
+<body>
+  <canvas id="e8" aria-label="Infinitely recursive deep-zoom viewer of the E8 root system. Pan and zoom anywhere — every star contains another full 240-star sky, at every depth, with colors that shift as you descend."></canvas>
+  <div class="vignette"></div>
+
+  <div class="hud">
+    <div class="eyebrow">The E8 root system</div>
+    <div class="title">Deep Engine v2</div>
+    <div class="stat" id="stat">computing…</div>
+  </div>
+
+  <div class="crumbs" id="crumbs"><span class="empty">surface</span></div>
+
+  <div class="help">
+    <b>scroll</b> / <b>pinch</b> zoom &middot;
+    <b>drag</b> pan &middot;
+    <b>double-click</b> dive toward cursor<br>
+    <kbd>+</kbd> <kbd>−</kbd> zoom &middot;
+    <kbd>←↑→↓</kbd> pan &middot;
+    <kbd>R</kbd> reset &middot;
+    <kbd>space</kbd> rotate 8D &middot;
+    <kbd>A</kbd> auto-dive &middot;
+    <kbd>E</kbd> edges &middot;
+    <kbd>S</kbd> save PNG
+  </div>
+
+  <div class="fps" id="fps"></div>
+
+  <div class="controls">
+    <button id="dive" type="button" class="gold">Dive</button>
+    <button id="surf" type="button">Surface</button>
+    <button id="full" type="button">Reset</button>
+    <button id="rot" type="button">Rotate in 8D</button>
+    <button id="auto" type="button">Auto-dive</button>
+    <button id="edges" type="button" class="on">Edges</button>
+    <button id="kids" type="button" class="on">Sub-skies</button>
+    <button id="save" type="button">Save PNG</button>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ============================================================
+  // E8 ROOT SYSTEM  —  240 roots, live-computed
+  // ============================================================
+  // 112 integer roots:  ±e_i ± e_j  (i < j)
+  // 128 half-integer:   (±½)^8  with even number of minus signs
+  var roots = [];
+  var i, j, k, m;
+  for (i = 0; i < 8; i++) for (j = i + 1; j < 8; j++) {
+    var ss = [[1,1],[1,-1],[-1,1],[-1,-1]];
+    for (k = 0; k < 4; k++) {
+      var v = [0,0,0,0,0,0,0,0];
+      v[i] = ss[k][0]; v[j] = ss[k][1];
+      roots.push(v);
+    }
+  }
+  for (m = 0; m < 256; m++) {
+    var bits = 0;
+    for (k = 0; k < 8; k++) if ((m >> k) & 1) bits++;
+    if (bits % 2 === 0) {
+      var w = [];
+      for (k = 0; k < 8; k++) w.push(((m >> k) & 1) ? -0.5 : 0.5);
+      roots.push(w);
+    }
+  }
+  // 240 roots total ✓
+
+  function dot(a, b) {
+    var s = 0;
+    for (var t = 0; t < 8; t++) s += a[t] * b[t];
+    return s;
+  }
+
+  // ============================================================
+  // COXETER PLANE PROJECTION  —  solved from the Dynkin diagram
+  // ============================================================
+  var S = [
+    [0.5,-0.5,-0.5,-0.5,-0.5,-0.5,-0.5,0.5],
+    [1,1,0,0,0,0,0,0],
+    [-1,1,0,0,0,0,0,0],
+    [0,-1,1,0,0,0,0,0],
+    [0,0,-1,1,0,0,0,0],
+    [0,0,0,-1,1,0,0,0],
+    [0,0,0,0,-1,1,0,0],
+    [0,0,0,0,0,-1,1,0]
+  ];
+  var E = [[0,2],[2,3],[3,4],[4,5],[5,6],[6,7],[1,3]];
+
+  var M = [];
+  for (i = 0; i < 8; i++) M.push([0,0,0,0,0,0,0,0]);
+  for (k = 0; k < E.length; k++) { M[E[k][0]][E[k][1]] = 1; M[E[k][1]][E[k][0]] = 1; }
+
+  // Perron–Frobenius eigenvector of the Dynkin adjacency (power iteration)
+  var c = [1,1,1,1,1,1,1,1];
+  for (m = 0; m < 400; m++) {
+    var nc = [0,0,0,0,0,0,0,0];
+    for (i = 0; i < 8; i++) for (j = 0; j < 8; j++) nc[i] += M[i][j] * c[j];
+    var mx = 0;
+    for (i = 0; i < 8; i++) if (nc[i] > mx) mx = nc[i];
+    for (i = 0; i < 8; i++) nc[i] /= mx;
+    c = nc;
+  }
+
+  // Coxeter plane basis u, v
+  var I = [0,3,5,7], J = [1,2,4,6];
+  var u = [0,0,0,0,0,0,0,0], vv = [0,0,0,0,0,0,0,0];
+  for (k = 0; k < 4; k++) for (var t2 = 0; t2 < 8; t2++) {
+    u[t2]  += c[I[k]] * S[I[k]][t2];
+    vv[t2] += c[J[k]] * S[J[k]][t2];
+  }
+
+  function norm(a) {
+    var n = Math.sqrt(dot(a, a));
+    return a.map(function(x){ return x / n; });
+  }
+  var uh = norm(u);
+  var pr = dot(vv, uh);
+  var wv = [];
+  for (k = 0; k < 8; k++) wv.push(vv[k] - pr * uh[k]);
+  var vh = norm(wv);
+
+  var restP = roots.map(function(r){ return [dot(r, uh), dot(r, vh)]; });
+
+  // 8 concentric rings of 30 roots each (Coxeter number h = 30)
+  var order = restP.map(function(p, q){ return [Math.hypot(p[0], p[1]), q]; });
+  order.sort(function(a, b){ return a[0] - b[0]; });
+  var ring = new Array(240);
+  for (k = 0; k < 240; k++) ring[order[k][1]] = Math.floor(k / 30);
+
+  // Base palette — champagne → gold → blue → ice (preserved from your v3)
+  var pal = [
+    [245,233,200],[217,196,140],[199,171,115],[159,176,204],
+    [127,178,242],[74,158,255],[46,111,208],[191,227,255]
+  ];
+
+  // 6720 edges: pairs with inner product exactly 1
+  var edges = [];
+  for (i = 0; i < 240; i++) for (j = i + 1; j < 240; j++) {
+    if (Math.abs(dot(roots[i], roots[j]) - 1) < 1e-9) edges.push([i, j]);
+  }
+  // Group edges by ring-pair for color-batched drawing
+  var groups = {};
+  for (k = 0; k < edges.length; k++) {
+    var a = edges[k][0], b = edges[k][1];
+    var key = Math.min(ring[a], ring[b]) + "-" + Math.max(ring[a], ring[b]);
+    (groups[key] = groups[key] || []).push(edges[k]);
+  }
+  var gkeys = Object.keys(groups);
+
+  // ============================================================
+  // COLOR PROGRESSION BY DEPTH  —  HSL hue shift per level
+  // ============================================================
+  function rgb2hsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    var mx = Math.max(r,g,b), mn = Math.min(r,g,b);
+    var h, s, l = (mx + mn) / 2;
+    if (mx === mn) { h = s = 0; }
+    else {
+      var d = mx - mn;
+      s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+      switch(mx) {
+        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / d + 2; break;
+        default: h = (r - g) / d + 4;
+      }
+      h *= 60;
+    }
+    return [h, s, l];
+  }
+  function hsl2rgb(h, s, l) {
+    h = ((h % 360) + 360) % 360 / 360;
+    var r, g, b;
+    if (s === 0) { r = g = b = l; }
+    else {
+      var hue2rgb = function(p, q, t) {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1/6) return p + (q - p) * 6 * t;
+        if (t < 1/2) return q;
+        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+        return p;
+      };
+      var q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      var p = 2 * l - q;
+      r = hue2rgb(p, q, h + 1/3);
+      g = hue2rgb(p, q, h);
+      b = hue2rgb(p, q, h - 1/3);
+    }
+    return [Math.round(r*255), Math.round(g*255), Math.round(b*255)];
+  }
+
+  var palHSL = pal.map(function(c){ return rgb2hsl(c[0], c[1], c[2]); });
+
+  // 28° hue shift per level — full color cycle every ~13 levels, but
+  // saturation/lightness drift adds secondary variation so deeper never looks same.
+  var LEVEL_HUE_SHIFT = 28;
+  var levelColorCache = {};
+  function levelColors(level) {
+    if (levelColorCache[level]) return levelColorCache[level];
+    var shift = level * LEVEL_HUE_SHIFT;
+    var absL = Math.abs(level);
+    var cols = palHSL.map(function(hsl) {
+      var h = hsl[0] + shift;
+      // gentle saturation boost, lightness breathe — keeps deep levels visible
+      var s = Math.min(1, hsl[1] + 0.04 * absL);
+      var l = Math.max(0.45, Math.min(0.82, hsl[2] + 0.015 * Math.sin(level * 0.7)));
+      return hsl2rgb(h, s, l);
+    });
+    levelColorCache[level] = cols;
+    return cols;
+  }
+
+  var edgeColorCache = {};
+  function edgeColorStr(key, level) {
+    var ck = key + "_" + level;
+    if (edgeColorCache[ck]) return edgeColorCache[ck];
+    var parts = key.split("-");
+    var cols = levelColors(level);
+    var p1 = cols[+parts[0]], p2 = cols[+parts[1]];
+    var r = Math.round((p1[0]+p2[0])/2);
+    var g = Math.round((p1[1]+p2[1])/2);
+    var b = Math.round((p1[2]+p2[2])/2);
+    var col = "rgb(" + r + "," + g + "," + b + ")";
+    edgeColorCache[ck] = col;
+    return col;
+  }
+
+  // ============================================================
+  // CANVAS  —  full viewport, HiDPI
+  // ============================================================
+  var cv = document.getElementById("e8");
+  var ctx = cv.getContext("2d");
+  var W = 0, H = 0, DPR = 1;
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2.5);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    cv.width = Math.round(W * DPR);
+    cv.height = Math.round(H * DPR);
+    cv.style.width = W + "px";
+    cv.style.height = H + "px";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    draw();
+  }
+  window.addEventListener("resize", resize);
+
+  // ============================================================
+  // CAMERA  —  continuous (x, y, zoom) — no snap-to-star
+  // ============================================================
+  var SQ2 = Math.SQRT2;          // 1.4142…
+  var LOG_SQ2 = Math.log(SQ2);
+  var BASE_RADIUS = SQ2;          // roots sit at distance √2 from origin
+  var DOT_R_WORLD = 0.022;        // base dot radius in level-0 world units
+  var RENDER_SPAN = 34;          // how many levels of the chain we draw per frame (a moving window)
+  var MAX_ZOOM = Infinity;       // no cap: the renormalizing camera descends forever
+
+  // Renormalizing camera: local (x,y) always live in the CURRENT sky's own
+  // coordinates at zoom in [1, SQ2). A persistent depthStack records which star
+  // we descended through at each level, so total depth is UNBOUNDED — no cap.
+  var camera = { x: 0, y: 0, zoom: 1, rotT: 0 };
+  var depthStack = [];   // star indices, surface -> current
+
+  function renormalize() {
+    // Descend: local zoom grew past one full level -> re-anchor into nearest star.
+    var guard = 0;
+    while (camera.zoom >= SQ2 && guard++ < 64) {
+      var best = 0, bd = 1e18;
+      for (var i = 0; i < 240; i++) {
+        var dx = P[i][0] - camera.x, dy = P[i][1] - camera.y;
+        var d2 = dx*dx + dy*dy;
+        if (d2 < bd) { bd = d2; best = i; }
+      }
+      camera.x = (camera.x - P[best][0]) * SQ2;
+      camera.y = (camera.y - P[best][1]) * SQ2;
+      camera.zoom /= SQ2;
+      depthStack.push(best);
+    }
+    // Ascend: local zoom fell below one level -> pop back up to parent sky.
+    while (camera.zoom < 1 && depthStack.length > 0 && guard++ < 128) {
+      var s = depthStack.pop();
+      camera.x = P[s][0] + camera.x / SQ2;
+      camera.y = P[s][1] + camera.y / SQ2;
+      camera.zoom *= SQ2;
+    }
+    if (depthStack.length === 0 && camera.zoom < 0.45) camera.zoom = 0.45;
+  }
+
+  function levelInfo() {
+    // Absolute level = persistent depth + current local level (0 while zoom<SQ2).
+    var localLog = Math.log(camera.zoom) / LOG_SQ2;
+    var level = depthStack.length + Math.floor(localLog);
+    return { level: level, frac: camera.zoom, logZ: level + (localLog - Math.floor(localLog)) };
+  }
+
+  // ============================================================
+  // 8D ROTATION  —  keeps the Coxeter plane alive
+  // ============================================================
+  function rotv(vec, t) {
+    if (t === 0) return vec.slice();
+    var r = vec.slice();
+    var planes = [[0,1],[2,3],[4,5],[6,7]];
+    var speeds = [1, 0.618, 0.414, 0.302];
+    for (var q = 0; q < 4; q++) {
+      var th = t * speeds[q], cs = Math.cos(th), sn = Math.sin(th);
+      var x = r[planes[q][0]], y = r[planes[q][1]];
+      r[planes[q][0]] = cs * x - sn * y;
+      r[planes[q][1]] = sn * x + cs * y;
+    }
+    return r;
+  }
+
+  var P = restP.map(function(p){ return p.slice(); });
+  function project() {
+    if (camera.rotT === 0) {
+      for (var q = 0; q < 240; q++) {
+        P[q][0] = restP[q][0]; P[q][1] = restP[q][1];
+      }
+    } else {
+      var U = rotv(uh, camera.rotT);
+      var V = rotv(vh, camera.rotT);
+      for (var q = 0; q < 240; q++) {
+        P[q][0] = dot(roots[q], U);
+        P[q][1] = dot(roots[q], V);
+      }
+    }
+  }
+
+  // ============================================================
+  // RENDERING  —  recursive BFS with viewport culling
+  // ============================================================
+  var showEdges = true;
+  var showKids  = true;
+  var lastVisibleSkies = [];     // for dive-button targeting
+
+  function baseScreenScale() {
+    var pad = 28;
+    return (Math.min(W, H) / 2 - pad) / BASE_RADIUS;
+  }
+
+  // ── Chain-based renderer ───────────────────────────────────
+  // At any moment the camera sits inside a unique "dive chain": a sequence
+  // of star indices (s_0, s_1, …, s_N) such that the sky at level L has its
+  //   center  =  Σ_{k<L}  P[s_k] · (1/√2)^k
+  //   scale   =  (1/√2)^L
+  // We render, for every level in the chain:
+  //   • the chain sky itself (always — it contains the camera)
+  //   • its 239 non-chain children (the "siblings" of chain[L+1]), culled
+  // This bounds the work to O(MAX_DEPTH × 240) candidates while guaranteeing
+  // the camera's full descent chain is always drawn — at any depth.
+  function computeChain(sscale) {
+    var chain = [];
+    var centers = [{ x: 0, y: 0, scale: 1 }];
+    var scale = 1;
+    while (chain.length < RENDER_SPAN) {
+      var c = centers[centers.length - 1];
+      var skyScreenR = 2 * scale * sscale;
+      if (skyScreenR < 1.2 && chain.length > 0) break;
+      // local camera position relative to current sky's center
+      var lx = (camera.x - c.x) / scale;
+      var ly = (camera.y - c.y) / scale;
+      var best = 0, bd = 1e18;
+      for (var i = 0; i < 240; i++) {
+        var dx = P[i][0] - lx, dy = P[i][1] - ly;
+        var d2 = dx*dx + dy*dy;
+        if (d2 < bd) { bd = d2; best = i; }
+      }
+      chain.push(best);
+      centers.push({
+        x: c.x + P[best][0] * scale,
+        y: c.y + P[best][1] * scale,
+        scale: scale / SQ2
+      });
+      scale /= SQ2;
+    }
+    return { chain: chain, centers: centers };
+  }
+
+  // Circle-vs-rectangle visibility test (tight bounding circle around stars).
+  // A sky is visible iff its star-bounding circle overlaps the viewport rect.
+  function skyVisible(sx, sy, sc, cx, cy, halfVW, halfVH) {
+    var r = 1.2 * sc;                                  // max projected radius ≈ 1.14
+    var closestX = sx < cx - halfVW ? cx - halfVW : (sx > cx + halfVW ? cx + halfVW : sx);
+    var closestY = sy < cy - halfVH ? cy - halfVH : (sy > cy + halfVH ? cy + halfVH : sy);
+    var dx = sx - closestX, dy = sy - closestY;
+    return (dx*dx + dy*dy) < r*r;
+  }
+
+  function draw() {
+    project();
+    ctx.clearRect(0, 0, W, H);
+
+    var sscale = baseScreenScale() * camera.zoom;
+    var cx = camera.x, cy = camera.y;
+    var halfVW = (W / 2) / sscale;
+    var halfVH = (H / 2) / sscale;
+    var currentLevel = Math.floor(Math.log(camera.zoom) / Math.log(SQ2));
+    var maxScreenR = 4 * Math.max(W, H);  // skies bigger than this overflow viewport
+
+    var cd = computeChain(sscale);
+    var chain = cd.chain;
+    var centers = cd.centers;
+    pathSeq = chain.slice();   // for breadcrumb display
+
+    var skies = [];
+    var maxLevelSeen = 0;
+
+    for (var L = 0; L < centers.length; L++) {
+      var center = centers[L];
+      var scale = center.scale;
+      var skyScreenR = 2 * scale * sscale;
+      var dotR = DOT_R_WORLD * scale * sscale;
+
+      // Always render the chain sky at every visible level
+      // Chain skies get edges + dots (they're the "spine" of the dive)
+      skies.push({ level: L, cx: center.x, cy: center.y, scale: scale, isChain: true });
+      if (L > maxLevelSeen) maxLevelSeen = L;
+
+      // Render this chain sky's 239 non-chain children (sub-skies of its stars).
+      // Only when:
+      //   • dotR > 14 (parent's stars are large enough that sub-skies would be visible)
+      //   • child's screen radius < 4×viewport (otherwise child overflows viewport,
+      //     meaning it's already rendered as part of a deeper chain level)
+      //   • |L - currentLevel| <= 2 (only render kids near the current zoom level —
+      //     shallower levels' kids are too big, deeper levels' kids are too small)
+      if (showKids && dotR > 14 && L < chain.length && Math.abs(L - currentLevel) <= 2) {
+        var chainChildStar = chain[L];
+        var childScale = scale / SQ2;
+        var childScreenR = 2 * childScale * sscale;
+        if (childScreenR >= 1.2 && childScreenR < maxScreenR) {
+          for (var i = 0; i < 240; i++) {
+            if (i === chainChildStar) continue;       // chain[L+1] added in next iteration
+            var sx = center.x + P[i][0] * scale;
+            var sy = center.y + P[i][1] * scale;
+            if (!skyVisible(sx, sy, childScale, cx, cy, halfVW, halfVH)) continue;
+            skies.push({ level: L + 1, cx: sx, cy: sy, scale: childScale, isChain: false });
+            if (L + 1 > maxLevelSeen) maxLevelSeen = L + 1;
+          }
+        }
+      }
+    }
+
+    // Sort: shallower levels first (children paint over parent stars)
+    skies.sort(function(a, b){ return a.level - b.level; });
+    lastVisibleSkies = skies;
+
+    for (var si = 0; si < skies.length; si++) {
+      renderSky(skies[si], sscale, cx, cy);
+    }
+
+    updateHUD(maxLevelSeen);
+  }
+
+  function renderSky(sky, sscale, camX, camY) {
+    var sL = sky.level, sCx = sky.cx, sCy = sky.cy, sSc = sky.scale;
+    var cols = levelColors(sL);
+
+    // Screen positions of all 240 roots
+    var scr = new Array(240);
+    var sx, sy, wx, wy;
+    for (var q = 0; q < 240; q++) {
+      wx = sCx + P[q][0] * sSc;
+      wy = sCy + P[q][1] * sSc;
+      sx = (wx - camX) * sscale + W/2;
+      sy = (camY - wy) * sscale + H/2;
+      scr[q] = [sx, sy];
+    }
+
+    var skyScreenR = 2 * sSc * sscale;
+    var rC = DOT_R_WORLD * sSc * sscale;        // dot radius in px
+    // Fade-in for newly-visible skies — smooths the descent
+    var fade = Math.min(1, skyScreenR / 36);
+    // Deeper levels slightly dimmer to push them visually back
+    var depthDim = Math.max(0.55, 1 - 0.04 * sL);
+
+    // ── EDGES ────────────────────────────────────────────────
+    // Only chain skies (the dive spine) get full edge rendering.
+    // Non-chain children are dot-clusters only — keeps edge count bounded
+    // to O(MAX_DEPTH × 6720) instead of O(visible_skies × 6720).
+    if (showEdges && sky.isChain && skyScreenR > 5) {
+      var edgeA;
+      if (sL === 0) {
+        edgeA = Math.min(0.32, 0.08 + camera.zoom * 0.05);
+      } else {
+        edgeA = Math.min(0.42, 0.18 + skyScreenR / 600);
+      }
+      edgeA *= fade * depthDim;
+      var lw = Math.max(0.35, Math.min(1.8, skyScreenR / 200));
+
+      ctx.lineWidth = lw;
+      ctx.lineCap = "round";
+      ctx.globalAlpha = edgeA;
+      for (var g = 0; g < gkeys.length; g++) {
+        var arr = groups[gkeys[g]];
+        ctx.beginPath();
+        for (var e = 0; e < arr.length; e++) {
+          var A = scr[arr[e][0]], B = scr[arr[e][1]];
+          // off-screen cull
+          if ((A[0] < -20 && B[0] < -20) || (A[0] > W+20 && B[0] > W+20)) continue;
+          if ((A[1] < -20 && B[1] < -20) || (A[1] > H+20 && B[1] > H+20)) continue;
+          ctx.moveTo(A[0], A[1]);
+          ctx.lineTo(B[0], B[1]);
+        }
+        ctx.strokeStyle = edgeColorStr(gkeys[g], sL);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // ── DOTS ─────────────────────────────────────────────────
+    if (rC < 0.55) {
+      // Sub-pixel dots: 1×1 rectangles, batched per ring
+      var a = fade * depthDim;
+      for (var rg = 0; rg < 8; rg++) {
+        var col = cols[rg];
+        ctx.fillStyle = "rgba(" + col[0] + "," + col[1] + "," + col[2] + "," + a + ")";
+        ctx.beginPath();
+        for (q = 0; q < 240; q++) {
+          if (ring[q] !== rg) continue;
+          var p = scr[q];
+          if (p[0] < -1 || p[0] > W+1 || p[1] < -1 || p[1] > H+1) continue;
+          ctx.rect(p[0] - 0.5, p[1] - 0.5, 1, 1);
+        }
+        ctx.fill();
+      }
+    } else {
+      var useGlow = rC > 3;
+      var glowR = rC * 2.6;
+      var glowA = Math.min(0.32, rC / 28) * fade * depthDim;
+      var dotA  = Math.min(1, 0.85 + rC/40) * fade * depthDim;
+
+      for (var rg2 = 0; rg2 < 8; rg2++) {
+        var col2 = cols[rg2];
+
+        // Glow halo (radial-feel via translucent disc)
+        if (useGlow) {
+          ctx.fillStyle = "rgba(" + col2[0] + "," + col2[1] + "," + col2[2] + "," + glowA + ")";
+          ctx.beginPath();
+          for (q = 0; q < 240; q++) {
+            if (ring[q] !== rg2) continue;
+            var pg = scr[q];
+            if (pg[0] < -glowR || pg[0] > W+glowR || pg[1] < -glowR || pg[1] > H+glowR) continue;
+            ctx.moveTo(pg[0] + glowR, pg[1]);
+            ctx.arc(pg[0], pg[1], glowR, 0, 6.2832);
+          }
+          ctx.fill();
+        }
+
+        // Core dot
+        ctx.fillStyle = "rgba(" + col2[0] + "," + col2[1] + "," + col2[2] + "," + dotA + ")";
+        ctx.beginPath();
+        for (q = 0; q < 240; q++) {
+          if (ring[q] !== rg2) continue;
+          var pd = scr[q];
+          if (pd[0] < -rC-1 || pd[0] > W+rC+1 || pd[1] < -rC-1 || pd[1] > H+rC+1) continue;
+          ctx.moveTo(pd[0] + rC, pd[1]);
+          ctx.arc(pd[0], pd[1], rC, 0, 6.2832);
+        }
+        ctx.fill();
+
+        // Bright pinpoint highlight when very zoomed in
+        if (rC > 6) {
+          var hi = Math.min(0.9, (rC - 6) / 24) * fade;
+          ctx.fillStyle = "rgba(255,255,255," + (hi * 0.55) + ")";
+          ctx.beginPath();
+          for (q = 0; q < 240; q++) {
+            if (ring[q] !== rg2) continue;
+            var ph = scr[q];
+            if (ph[0] < -rC-1 || ph[0] > W+rC+1 || ph[1] < -rC-1 || ph[1] > H+rC+1) continue;
+            ctx.moveTo(ph[0] + rC*0.35, ph[1]);
+            ctx.arc(ph[0] - rC*0.2, ph[1] - rC*0.2, rC*0.35, 0, 6.2832);
+          }
+          ctx.fill();
+        }
+      }
+    }
+  }
+
+  // ============================================================
+  // HUD
+  // ============================================================
+  function updateHUD(maxLevel) {
+    var info = levelInfo();
+    var log10Z = info.logZ * Math.log10(SQ2);
+    var zTxt;
+    if (log10Z < 3) {
+      var zt = Math.pow(10, log10Z);
+      zTxt = "×" + (zt >= 10 ? Math.round(zt) : zt.toFixed(1));
+    } else {
+      zTxt = "×10^" + log10Z.toFixed(2);
+    }
+    document.getElementById("stat").innerHTML =
+      "level <b class='accent'>" + info.level + "</b> &middot; " +
+      "zoom <b>" + zTxt + "</b> &middot; " +
+      "<b>" + (lastVisibleSkies.length) + "</b> skies &middot; " +
+      "deepest <b>" + maxLevel + "</b>";
+
+    // Breadcrumb — show first 24 stars in dive-path colored by ring
+    var cr = "";
+    var L = Math.min(pathSeq.length, 24);
+    for (var q = 0; q < L; q++) {
+      var col = levelColors(q)[ring[pathSeq[q]]];
+      cr += "<span style=\"color:rgb(" + col[0] + "," + col[1] + "," + col[2] + ")\">●</span>";
+    }
+    if (pathSeq.length > 24) cr += "<span style=\"color:var(--dim);font-size:11px\"> +" + (pathSeq.length-24) + "</span>";
+    if (cr === "") cr = "<span class='empty'>surface · depth 0</span>";
+    document.getElementById("crumbs").innerHTML = cr;
+  }
+
+  // Dive-path sequence — populated by computeChain() during draw().
+  // Each entry is the star index in the parent sky that contains the camera.
+  var pathSeq = [];
+
+  function nearestStarToCam() {
+    var best = -1, bd = 1e9;
+    for (var q = 0; q < 240; q++) {
+      var dx = P[q][0] - camera.x, dy = P[q][1] - camera.y;
+      var d2 = dx*dx + dy*dy;
+      if (d2 < bd) { bd = d2; best = q; }
+    }
+    return best;
+  }
+
+  // ============================================================
+  // INPUT  —  pointer / wheel / keyboard
+  // ============================================================
+  var pointers = {}, lastPinch = 0, dragging = false, lx = 0, ly = 0;
+
+  cv.addEventListener("pointerdown", function(e) {
+    cv.setPointerCapture(e.pointerId);
+    pointers[e.pointerId] = [e.clientX, e.clientY];
+    if (Object.keys(pointers).length === 1) {
+      dragging = true; lx = e.clientX; ly = e.clientY;
+      cv.classList.add("dragging");
+    }
+    if (Object.keys(pointers).length === 2) {
+      var ps = Object.values(pointers);
+      lastPinch = Math.hypot(ps[0][0]-ps[1][0], ps[0][1]-ps[1][1]);
+      dragging = false;
+    }
+  });
+
+  cv.addEventListener("pointermove", function(e) {
+    if (!(e.pointerId in pointers)) return;
+    pointers[e.pointerId] = [e.clientX, e.clientY];
+    var keys = Object.keys(pointers);
+    var sscale = baseScreenScale() * camera.zoom;
+
+    if (keys.length === 1 && dragging) {
+      camera.x -= (e.clientX - lx) / sscale;
+      camera.y += (e.clientY - ly) / sscale;
+      lx = e.clientX; ly = e.clientY;
+      draw();
+    } else if (keys.length === 2) {
+      var ps = Object.values(pointers);
+      var d2 = Math.hypot(ps[0][0]-ps[1][0], ps[0][1]-ps[1][1]);
+      if (lastPinch > 0) {
+        var mxp = (ps[0][0]+ps[1][0])/2, myp = (ps[0][1]+ps[1][1])/2;
+        zoomAt(mxp, myp, d2 / lastPinch);
+      }
+      lastPinch = d2;
+    }
+  });
+
+  function endPointer(e) {
+    delete pointers[e.pointerId];
+    if (Object.keys(pointers).length === 0) {
+      dragging = false; cv.classList.remove("dragging");
+    }
+    lastPinch = 0;
+  }
+  cv.addEventListener("pointerup", endPointer);
+  cv.addEventListener("pointercancel", endPointer);
+
+  function zoomAt(mxp, myp, factor) {
+    var sscale = baseScreenScale() * camera.zoom;
+    var wx = camera.x + (mxp - W/2) / sscale;
+    var wy = camera.y - (myp - H/2) / sscale;
+    camera.zoom *= factor;
+    if (depthStack.length === 0 && camera.zoom < 0.45) camera.zoom = 0.45;
+    var newSscale = baseScreenScale() * camera.zoom;
+    camera.x = wx - (mxp - W/2) / newSscale;
+    camera.y = wy + (myp - H/2) / newSscale;
+    renormalize();
+    draw();
+  }
+
+  cv.addEventListener("wheel", function(e) {
+    e.preventDefault();
+    var factor = Math.exp(-e.deltaY * 0.0015);
+    zoomAt(e.clientX, e.clientY, factor);
+  }, { passive: false });
+
+  cv.addEventListener("dblclick", function(e) {
+    var sscale = baseScreenScale() * camera.zoom;
+    var wx = camera.x + (e.clientX - W/2) / sscale;
+    var wy = camera.y - (e.clientY - H/2) / sscale;
+    goTo(camera.zoom * 2.6, wx, wy, 600);
+  });
+
+  // ============================================================
+  // SMOOTH ZOOM TWEEN
+  // ============================================================
+  var tween = null;
+  function goTo(zTarget, wx, wy, duration) {
+    var z0 = camera.zoom, x0 = camera.x, y0 = camera.y, t0 = performance.now();
+    duration = duration || 650;
+    if (wx === undefined) { wx = x0; wy = y0; }
+    if (depthStack.length === 0 && zTarget < 0.45) zTarget = 0.45;
+    if (tween) cancelAnimationFrame(tween);
+    var lz0 = Math.log(z0), lz1 = Math.log(zTarget);
+    function step(now) {
+      var p = Math.min(1, (now - t0) / duration);
+      p = 1 - Math.pow(1 - p, 3);
+      camera.zoom = Math.exp(lz0 + (lz1 - lz0) * p);
+      camera.x = x0 + (wx - x0) * p;
+      camera.y = y0 + (wy - y0) * p;
+      renormalize();
+      draw();
+      if (p < 1) tween = requestAnimationFrame(step);
+      else tween = null;
+    }
+    tween = requestAnimationFrame(step);
+  }
+
+  // ============================================================
+  // DIVE — find nearest visible star to screen center, zoom into it
+  // ============================================================
+  function diveTarget() {
+    // search across visible skies for the star nearest camera
+    var best = { d: 1e18, sky: null, idx: -1 };
+    for (var i3 = 0; i3 < lastVisibleSkies.length; i3++) {
+      var sky = lastVisibleSkies[i3];
+      // only target skies that are at the deepest visible level,
+      // or one above (so we dive into the next level down)
+      if (sky.level < levelInfo().level) continue;
+      var sSc = sky.scale;
+      for (var q = 0; q < 240; q++) {
+        var wx = sky.cx + P[q][0] * sSc;
+        var wy = sky.cy + P[q][1] * sSc;
+        var dx = wx - camera.x, dy = wy - camera.y;
+        var d2 = dx*dx + dy*dy;
+        // prefer stars at the deepest visible level
+        var penalty = (sky.level === levelInfo().level + 1) ? 1.0 : 0.5;
+        var d2p = d2 * penalty;
+        if (d2p < best.d) { best.d = d2p; best.sky = sky; best.idx = q; }
+      }
+    }
+    if (best.idx < 0) return null;
+    var s = best.sky;
+    var target = {
+      x: s.cx + P[best.idx][0] * s.scale,
+      y: s.cy + P[best.idx][1] * s.scale
+    };
+    return target;
+  }
+
+  // ============================================================
+  // BUTTONS
+  // ============================================================
+  document.getElementById("dive").addEventListener("click", function() {
+    var tgt = diveTarget();
+    if (tgt) goTo(camera.zoom * SQ2 * 1.04, tgt.x, tgt.y, 950);
+    else     goTo(camera.zoom * SQ2, camera.x, camera.y, 950);
+  });
+  document.getElementById("surf").addEventListener("click", function() {
+    if (camera.zoom <= 0.46) return;
+    goTo(Math.max(0.45, camera.zoom / SQ2), camera.x, camera.y, 700);
+  });
+  document.getElementById("full").addEventListener("click", function() {
+    pathSeq = []; depthStack = [];
+    camera.x = 0; camera.y = 0; camera.zoom = 1;
+    goTo(1, 0, 0, 1);
+  });
+
+  var playing = false;
+  document.getElementById("rot").addEventListener("click", function() {
+    playing = !playing;
+    this.textContent = playing ? "Pause 8D" : "Rotate in 8D";
+    this.classList.toggle("on", playing);
+    if (playing) requestAnimationFrame(rotLoop);
+  });
+  function rotLoop() {
+    if (!playing) return;
+    camera.rotT += 0.0030;
+    draw();
+    requestAnimationFrame(rotLoop);
+  }
+
+  var autoDive = false;
+  document.getElementById("auto").addEventListener("click", function() {
+    autoDive = !autoDive;
+    this.classList.toggle("on", autoDive);
+    this.textContent = autoDive ? "Stop auto" : "Auto-dive";
+    if (autoDive) {
+      lastFrame = performance.now();
+      requestAnimationFrame(autoLoop);
+    }
+  });
+  var lastFrame = 0;
+  function autoLoop(now) {
+    if (!autoDive) return;
+    var dt = Math.min(0.05, (now - lastFrame) / 1000);
+    lastFrame = now;
+    // Smooth zoom-in toward screen center, ~3.5×/sec
+    var factor = Math.pow(3.5, dt);
+    // Steer gently toward the nearest star in the CURRENT sky so the dive threads
+    // star-to-star forever instead of drifting to a fixed screen point.
+    var bs = 0, bd = 1e18;
+    for (var qi = 0; qi < 240; qi++) {
+      var ddx = P[qi][0] - camera.x, ddy = P[qi][1] - camera.y;
+      var dd = ddx*ddx + ddy*ddy;
+      if (dd < bd) { bd = dd; bs = qi; }
+    }
+    var kk = Math.min(0.14, 0.03 + camera.zoom * 0.04);
+    camera.x += (P[bs][0] - camera.x) * kk;
+    camera.y += (P[bs][1] - camera.y) * kk;
+    zoomAt(W/2, H/2, factor);
+    if (!playing) { camera.rotT += dt * 0.18; }
+    requestAnimationFrame(autoLoop);
+  }
+
+  document.getElementById("edges").addEventListener("click", function() {
+    showEdges = !showEdges;
+    this.classList.toggle("on", showEdges);
+    draw();
+  });
+  document.getElementById("kids").addEventListener("click", function() {
+    showKids = !showKids;
+    this.classList.toggle("on", showKids);
+    draw();
+  });
+  document.getElementById("save").addEventListener("click", function() {
+    var link = document.createElement("a");
+    link.download = "E8_deep_" + Date.now() + ".png";
+    link.href = cv.toDataURL("image/png");
+    link.click();
+  });
+
+  // ============================================================
+  // KEYBOARD
+  // ============================================================
+  window.addEventListener("keydown", function(e) {
+    if (e.target && e.target.tagName === "BUTTON") return;
+    var panStep = 60 / (baseScreenScale() * camera.zoom);
+    switch(e.key) {
+      case '+': case '=': zoomAt(W/2, H/2, SQ2); break;
+      case '-': case '_': zoomAt(W/2, H/2, 1/SQ2); break;
+      case 'ArrowLeft':  camera.x -= panStep; draw(); break;
+      case 'ArrowRight': camera.x += panStep; draw(); break;
+      case 'ArrowUp':    camera.y += panStep; draw(); break;
+      case 'ArrowDown':  camera.y -= panStep; draw(); break;
+      case 'r': case 'R':
+        pathSeq = []; depthStack = [];
+        camera.x = 0; camera.y = 0; camera.zoom = 1; camera.rotT = 0;
+        draw(); break;
+      case ' ':
+        e.preventDefault();
+        document.getElementById("rot").click();
+        break;
+      case 'a': case 'A':
+        document.getElementById("auto").click();
+        break;
+      case 'e': case 'E':
+        document.getElementById("edges").click();
+        break;
+      case 's': case 'S':
+        if (!(e.metaKey || e.ctrlKey)) {
+          document.getElementById("save").click();
+        }
+        break;
+    }
+  });
+
+  // ============================================================
+  // FPS METER
+  // ============================================================
+  var fpsEl = document.getElementById("fps");
+  var fpsFrames = 0, fpsT0 = performance.now(), fpsLast = 60;
+  function fpsTick() {
+    fpsFrames++;
+    var now = performance.now();
+    if (now - fpsT0 >= 500) {
+      fpsLast = Math.round((fpsFrames * 1000) / (now - fpsT0));
+      fpsEl.textContent = fpsLast + " fps";
+      fpsT0 = now; fpsFrames = 0;
+    }
+    requestAnimationFrame(fpsTick);
+  }
+  requestAnimationFrame(fpsTick);
+
+  // ============================================================
+  // INIT
+  // ============================================================
+  resize();
+
+  // Expose internals for debugging
+  window.__e8 = { camera: camera, pathSeq: pathSeq, lastVisibleSkies: function(){ return lastVisibleSkies; }, RENDER_SPAN: RENDER_SPAN, MAX_ZOOM: MAX_ZOOM, P: P, restP: restP, ring: ring, SQ2: Math.SQRT2, baseScreenScale: baseScreenScale };
+
+  // Initial nudge — slight 8D rotation so the very first frame has life
+  setTimeout(function(){ if (!playing && !autoDive) { camera.rotT = 0.0001; draw(); } }, 50);
+})();
+</script>
+</body>
+</html>
