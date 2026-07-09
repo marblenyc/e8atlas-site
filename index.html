@@ -301,6 +301,9 @@
     border-radius:14px 14px 0 0;
   }
   .face-back{ transform: rotateY(180deg); }
+  /* leak fix: hide the back-face entirely until the card is actually flipped
+     (backdrop-filter defeats backface-visibility, so the back bled through on hover) */
+  .card:not(.is-flipped) .face-back{ visibility:hidden; }
 
   .card:hover .face:not(.face-back),
   .card.is-flipped:hover .face-back{
@@ -382,11 +385,11 @@
     color:var(--ivory); font-weight:500;
   }
   .back-return{
-    position:absolute; bottom:20px; left:24px;
-    font-family:var(--mono); font-size:9px; letter-spacing:.26em;
-    text-transform:uppercase; color:var(--amber); z-index:3;
+    position:absolute; top:14px; right:16px; bottom:auto; left:auto;
+    font-size:0; z-index:4; cursor:pointer;
   }
-  .back-return::before{ content:'↺ '; }
+  .back-return::before{ content:'✕'; font-family:var(--sans); font-size:15px; letter-spacing:0; color:var(--blue-dim); transition:color .3s ease; }
+  .back-return:hover::before{ color:var(--ivory-bright); }
 
   .scholar{
     padding:80px 0; background:var(--bg);
@@ -744,9 +747,7 @@
     <span style="display:block;color:var(--blue-text,#a8bad4);font-size:.92rem;margin-top:5px;line-height:1.5;">All 240 roots on canvas, Coxeter-plane projection with live lattice controls. The current canonical engine.</span>
   </a>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">
-    <a href="/engines/24-cell/" style="display:block;padding:15px 17px;background:var(--panel,#131c2c);border:1px solid var(--amber,#d8b878);border-radius:8px;text-decoration:none;"><span style="display:block;color:var(--amber,#d8b878);font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;">Sibling polytope · 24-cell</span><span style="display:block;color:var(--ivory,#EDE4CE);font-size:1rem;margin-top:4px;">The 24-cell — study instrument · 8 skins</span></a>
-    <a href="/engines/v2-unbounded/" style="display:block;padding:15px 17px;background:var(--panel,#131c2c);border:1px solid var(--blue-faint,#4a5870);border-radius:8px;text-decoration:none;"><span style="display:block;color:var(--blue-dim,#6d7f9a);font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;">Lineage · v2</span><span style="display:block;color:var(--ivory,#EDE4CE);font-size:1rem;margin-top:4px;">Lattice Engine — Unbounded</span></a>
-    <a href="/engines/lineage/v6-spine/" style="display:block;padding:15px 17px;background:var(--panel,#131c2c);border:1px solid var(--blue-faint,#4a5870);border-radius:8px;text-decoration:none;"><span style="display:block;color:var(--blue-dim,#6d7f9a);font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;">Lineage · v6</span><span style="display:block;color:var(--ivory,#EDE4CE);font-size:1rem;margin-top:4px;">Deep Atlas — Spine</span></a>
+    <a href="/engines/24-cell/" style="display:block;padding:15px 17px;background:var(--panel,#131c2c);border:1px solid var(--amber,#d8b878);border-radius:8px;text-decoration:none;"><span style="display:block;color:var(--amber,#d8b878);font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;">Sibling polytope · 24-cell</span><span style="display:block;color:var(--ivory,#EDE4CE);font-size:1rem;margin-top:4px;">The 24-cell — study instrument · 8 skins</span></a>    <a href="/engines/lineage/v6-spine/" style="display:block;padding:15px 17px;background:var(--panel,#131c2c);border:1px solid var(--blue-faint,#4a5870);border-radius:8px;text-decoration:none;"><span style="display:block;color:var(--blue-dim,#6d7f9a);font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;">Lineage · v6</span><span style="display:block;color:var(--ivory,#EDE4CE);font-size:1rem;margin-top:4px;">Deep Atlas — Spine</span></a>
     <a href="/engines/lineage/v5-territories/" style="display:block;padding:15px 17px;background:var(--panel,#131c2c);border:1px solid var(--blue-faint,#4a5870);border-radius:8px;text-decoration:none;"><span style="display:block;color:var(--blue-dim,#6d7f9a);font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;">Lineage · v5</span><span style="display:block;color:var(--ivory,#EDE4CE);font-size:1rem;margin-top:4px;">Deep Atlas — Territories</span></a>
     <a href="/engines/lineage/v4-waypoints/" style="display:block;padding:15px 17px;background:var(--panel,#131c2c);border:1px solid var(--blue-faint,#4a5870);border-radius:8px;text-decoration:none;"><span style="display:block;color:var(--blue-dim,#6d7f9a);font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;">Lineage · v4</span><span style="display:block;color:var(--ivory,#EDE4CE);font-size:1rem;margin-top:4px;">Deep Atlas — Waypoints</span></a>
     <a href="/engines/lineage/v3/" style="display:block;padding:15px 17px;background:var(--panel,#131c2c);border:1px solid var(--blue-faint,#4a5870);border-radius:8px;text-decoration:none;"><span style="display:block;color:var(--blue-dim,#6d7f9a);font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;">Lineage · v3</span><span style="display:block;color:var(--ivory,#EDE4CE);font-size:1rem;margin-top:4px;">Deep Atlas</span></a>

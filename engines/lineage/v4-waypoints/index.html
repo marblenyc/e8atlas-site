@@ -93,6 +93,12 @@
     font-family:Georgia,serif;font-size:14px;padding:9px 11px;margin-bottom:10px;resize:vertical}
   .panel textarea{min-height:64px;font-size:13px;line-height:1.5}
   .panel ::placeholder{color:#3d4a5f}
+  /* scrollbar hygiene: thin themed bar so #rail + .panel scroll clean (native bar rendered broken/overlapping) */
+  #rail,.panel{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+  #rail::-webkit-scrollbar,.panel::-webkit-scrollbar{width:9px}
+  #rail::-webkit-scrollbar-track,.panel::-webkit-scrollbar-track{background:transparent;margin:8px 0}
+  #rail::-webkit-scrollbar-thumb,.panel::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px;border:2px solid transparent;background-clip:padding-box}
+  #rail::-webkit-scrollbar-thumb:hover,.panel::-webkit-scrollbar-thumb:hover{background:var(--dim)}
   .prow{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}
   .pb{background:none;border:1px solid var(--line);color:var(--dim);
     font-family:'Space Grotesk',Arial,sans-serif;font-size:10px;letter-spacing:2px;
