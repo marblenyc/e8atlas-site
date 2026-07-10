@@ -844,6 +844,378 @@ addEventListener("keydown",e=>{
   else if(e.key==="3")document.querySelector('[data-p="storm"]').click();
 });
 
+/* ==========================================================================
+   LANE A · E8 LAYER-HOST SOCKET  (dispatch E8-LANE-A-HOST-001)
+   ADDITIVE-ONLY. Implements Layer-Host Contract v0.1 + COOP Amendments A/B/C.
+   FROZEN & read-only to layers: buildRoots() / proj0 / [U,V] / V1-V13 CHECKS.
+   The base's live fx/fy (which pick() at the picker consumes) is NEVER handed
+   to a layer — layers receive a read-only per-frame snapshot accessor.
+   ========================================================================== */
+
+/* §2.1 REGISTRATION — ordered registry; host hard-codes no specific layer. */
+const LAYERS=[];
+let _layersDirty=true;               /* panel needs (re)mount */
+function registerLayer(def){
+  if(!def||typeof def!=="object")throw new Error("registerLayer: def required");
+  if(typeof def.id!=="string"||!def.id)throw new Error("registerLayer: string id required");
+  if(LAYERS.some(l=>l.id===def.id))throw new Error("registerLayer: duplicate id "+def.id);
+  const c=def.controls||{toggle:true};
+  const L={
+    id:def.id, name:def.name||def.id, group:def.group||"layers",
+    order:Number.isFinite(def.order)?def.order:100,
+    on:!!def.defaultOn, data:def.data||{},
+    draw:typeof def.draw==="function"?def.draw:null,
+    bootCheck:typeof def.bootCheck==="function"?def.bootCheck:null,
+    controls:c, intensity:(typeof c.intensity==="number")?c.intensity:1,
+    _dark:false                       /* set on boot-check FAIL or draw() throw */
+  };
+  LAYERS.push(L); LAYERS.sort((a,b)=>a.order-b.order);   /* §2.3 draw order = order */
+  _layersDirty=true; return L;
+}
+function unregisterLayer(id){                              /* §2.5 pure list op */
+  const k=LAYERS.findIndex(l=>l.id===id);
+  if(k<0)return false; LAYERS.splice(k,1); _layersDirty=true; return true;
+}
+
+/* Amendment A — READ-ONLY coord snapshot. Copies the base's just-painted
+   current-lattice screen coords (fx/fy) into private buffers each frame and
+   exposes only getters. Layers cannot reach or mutate the live fx/fy. */
+const _cxSnap=new Float32Array(240), _cySnap=new Float32Array(240);
+function _snapshotCoords(){for(let i=0;i<240;i++){_cxSnap[i]=fx[i];_cySnap[i]=fy[i];}}
+const COORDS=Object.freeze({
+  count:240,
+  x(i){return _cxSnap[i];},
+  y(i){return _cySnap[i];},
+  xy(i){return [_cxSnap[i],_cySnap[i]];}     /* fresh pair — caller can't reach source */
+});
+
+/* §2.4 TOGGLE MOUNT — panel is rendered FROM the registry, grouped by `group`.
+   Reuses existing rail classes (.sec/.btnrow/.b/.sl). No layer edits HTML. */
+function mountLayerPanel(){
+  const rail=document.getElementById("rail"); if(!rail)return;
+  let host=document.getElementById("layerPanel");
+  if(!host){host=document.createElement("div");host.id="layerPanel";rail.appendChild(host);}
+  host.innerHTML="";
+  if(!LAYERS.length){_layersDirty=false;return;}
+  const order=[],byG={};
+  for(const L of LAYERS){if(!byG[L.group]){byG[L.group]=[];order.push(L.group);}byG[L.group].push(L);}
+  for(const g of order){
+    const sec=document.createElement("div");sec.className="sec";
+    sec.textContent="LAYER · "+g.toUpperCase();host.appendChild(sec);
+    for(const L of byG[g]){
+      const row=document.createElement("div");row.className="btnrow";row.style.marginTop="6px";
+      const btn=document.createElement("button");
+      btn.className="b"+(L.on&&!L._dark?" on":"");
+      btn.textContent=(L._dark?"⚠ ":"")+L.name;
+      btn.title=L._dark?"layer is dark (check FAIL or draw threw) — base unaffected"
+                       :((L.on?"hide ":"show ")+L.name);
+      btn.onclick=()=>{ if(L._dark)return;      /* dark stays dark until reload */
+        L.on=!L.on; btn.classList.toggle("on",L.on); };
+      row.appendChild(btn); host.appendChild(row);
+      if(L.controls&&L.controls.intensity){
+        const sl=document.createElement("div");sl.className="sl";
+        const lab=document.createElement("label");lab.textContent="intensity";
+        const inp=document.createElement("input");inp.type="range";
+        inp.min="0";inp.max="100";inp.value=String(Math.round((L.intensity||1)*100));
+        inp.oninput=e=>{L.intensity=e.target.value/100;};
+        sl.appendChild(lab);sl.appendChild(inp);host.appendChild(sl);}
+    }
+  }
+  _layersDirty=false;
+}
+
+/* §2.2 provenance + Amendment C — layer boot checks are DISPLAY-ONLY.
+   They NEVER feed base ALL_GREEN (refuse-to-render stays scoped to V1-V13).
+   A failing layer check forces THAT layer dark; the atlas still renders. */
+function runLayerBootChecks(){
+  const el=document.getElementById("checks");
+  const rows=[];
+  for(const L of LAYERS){
+    if(!L.bootCheck)continue;
+    let res;
+    try{res=L.bootCheck.call(L);}catch(e){res=["V14 · "+L.id,"boot check threw: "+(e&&e.message),false];}
+    if(!Array.isArray(res)||res.length<3)res=["V14 · "+L.id,"malformed check",false];
+    if(!res[2]){L.on=false;L._dark=true;}     /* fail-dark, base untouched */
+    rows.push(res);
+  }
+  if(!el||!rows.length)return;
+  const off=CHECKS.length;                     /* stagger after base V1-V13 */
+  const note=document.createElement("div");note.className="row";
+  note.innerHTML='<span style="width:158px;flex:none">— · layer provenance</span>'+
+    '<span class="num" style="flex:1">checks below annotate layers · they DO NOT gate render (base V1-V13 rules)</span>'+
+    '<span class="ok">·</span>';
+  el.appendChild(note);setTimeout(()=>note.classList.add("show"),190+off*135);
+  rows.forEach((c,i)=>{
+    const row=document.createElement("div");row.className="row";
+    row.innerHTML=`<span style="width:158px;flex:none">${c[0]}</span>`+
+      `<span class="num" style="flex:1">${c[1]}</span>`+
+      `<span class="${c[2]?"ok":"fail"}">${c[2]?"PASS":"HELD·DARK"}</span>`;
+    el.appendChild(row);setTimeout(()=>row.classList.add("show"),190+(off+1+i)*135);
+  });
+}
+
+/* Bridge for Lanes B/C — their ONLY entry point; they never touch host code. */
+window.__helmLayers={registerLayer,unregisterLayer,LAYERS,COORDS};
+
+/* ---- deterministic fail-dark demos (query-gated, no-op without the flag) ----
+   ?reffail=1     -> reference draw() throws  (proves Amendment B ctx-isolation)
+   ?refbootfail=1 -> reference V14 fails       (proves Amendment C boot-scope)   */
+const _REF_FAIL=/[?&]reffail=1/.test(location.search);
+const _REF_BOOTFAIL=/[?&]refbootfail=1/.test(location.search);
+
+/* §2 REFERENCE LAYER — one layer proving the whole contract end-to-end.
+   Lights ring 0 (the 30 innermost roots) as hollow rings over the base. */
+registerLayer({
+  id:"ref-ring0", name:"Ring 0 (ref)", group:"reference",
+  defaultOn:_REF_FAIL,           /* normally off; the fail-demo pre-arms it ON */
+  order:10,
+  data:{
+    roots:(function(){const a=[];for(let i=0;i<240;i++)if(ringOf[i]===0)a.push(i);
+      if(_REF_BOOTFAIL){a.pop();a.push(239);}   /* 239∉ring0 (it's ring6) — corrupt membership for demo */
+      return a;})(),
+    hue:150                       /* green — distinct from base ring/family/gen palettes */
+  },
+  controls:{toggle:true,intensity:true},
+  draw(ctx,coords,style){
+    if(_REF_FAIL)throw new Error("demo: reference draw() intentionally threw");
+    const hue=style.hue, k=style.intensity;
+    ctx.lineWidth=2; ctx.strokeStyle=`hsla(${hue},85%,62%,${0.9*k})`;
+    for(const idx of this.data.roots){
+      const x=coords.x(idx), y=coords.y(idx);
+      ctx.beginPath();ctx.arc(x,y,7,0,6.2832);ctx.stroke();
+    }
+  },
+  bootCheck(){                    /* V14: asserted 30 indices === computed ring 0 */
+    const want=[];for(let i=0;i<240;i++)if(ringOf[i]===0)want.push(i);
+    const got=this.data.roots, ws=new Set(want);
+    const ok = got.length===30 && want.length===30 &&
+               new Set(got).size===30 && got.every(i=>ws.has(i));
+    return ["V14 · ref-ring0",
+      `${got.length} roots asserted = ring 0 · ${ok?"membership derivable from ringOf":"MISMATCH"}`, ok];
+  }
+});
+
+/* ==========================================================================
+   LANE B · E8 LATTICE ILLUMINATOR — Foster's Module 1
+   dispatch E8-LANE-B-ILLUMINATOR-001 · ADDITIVE-ONLY layers on the Lane-A socket.
+   Lights the named E8 sub-objects (E7, E6, D8, A8, Petrie, the two 600-cells of
+   the H4 fold) as illuminations. Absorbed AS LAYERS per One-E8-Surface — not a
+   v7 standalone. Honors PART-R amendments:
+     A — registers via registerLayer; draws ONLY in the post-base dispatch;
+         reads the read-only COORDS accessor, NEVER the live fx/fy (pick() state).
+     B — each draw() sets its own ctx state, bakes alpha into hsla (leaks no
+         globalAlpha/transform), survives save()/restore()+try/catch; a throw
+         darkens that one layer, base + siblings survive (fail-dark clean).
+     C — each layer carries a V14+ self-check that is DISPLAY-ONLY; a failing
+         check forces THAT layer dark and NEVER feeds base ALL_GREEN.
+   Membership is COMPUTED from the frozen base (buildRoots/dot/ringOf/Cox),
+   never hand-typed. Derivations + counts + §12 fork rulings + demo hooks:
+   see out/ILLUMINATOR_BUILD_NOTES.md and out/compute_membership.js.
+   ========================================================================== */
+const _illumFail     = /[?&]illumfail=1/.test(location.search);      /* draw() throws (proves Amendment B) */
+const _illumBootFail = /[?&]illumbootfail=1/.test(location.search);  /* V-check fails (proves Amendment C) */
+
+/* --- DERIVE every sub-object's root-index set from the frozen base, once --- */
+const _ILLUM=(function computeIlluminatorMembership(){
+  const N=240, id=(i,j)=>Math.round(dot(roots[i],roots[j]));
+  const same=(a,b)=>{if(a.length!==b.length)return false;const s=new Set(b);return a.every(x=>s.has(x));};
+  /* D8 — all-integer-coordinate roots (no half-integer entry) → 112 */
+  const vD8=()=>{const a=[];for(let i=0;i<N;i++)if(roots[i].every(x=>Number.isInteger(x)))a.push(i);return a;};
+  /* E7 — perpendicular complement of one fixed root r0=roots[1]=(1,-1,0…) → 126 */
+  const E7_R0=1;
+  const vE7=()=>{const a=[];for(let i=0;i<N;i++)if(i!==E7_R0&&id(i,E7_R0)===0)a.push(i);return a;};
+  /* E6 — perpendicular complement of a fixed A2 {a,b}, dot(a,b)=−1 → 72
+     (an ORTHOGONAL pair dot=0 would give D6, not E6 — the A2 choice is load-bearing) */
+  const E6_A=1; let E6_B=-1; for(let i=0;i<N;i++){if(i!==E6_A&&id(i,E6_A)===-1){E6_B=i;break;}}
+  const vE6=()=>{const a=[];for(let i=0;i<N;i++)if(i!==E6_A&&i!==E6_B&&id(i,E6_A)===0&&id(i,E6_B)===0)a.push(i);return a;};
+  /* A8 — contiguous partial sums of an A8 Dynkin chain (+negatives) → 72.
+     Find the chain by deterministic lowest-index-first backtracking on the
+     A8 Cartan (norm 2; adjacent dot −1; else 0). A_n positive roots ARE the
+     36 contiguous sums; +negatives = 72. */
+  const keyOf=v=>Array.from(v,x=>(x===0?0:x).toFixed(1)).join(",");
+  const IDX=new Map(); roots.forEach((r,i)=>IDX.set(keyOf(r),i));
+  const look=v=>{const k=keyOf(v);return IDX.has(k)?IDX.get(k):-1;};
+  const a8chain=(function(){const ch=[];(function bt(p){if(p===8)return true;
+    for(let c=0;c<N;c++){let ok=true;for(let k=0;k<p;k++){const need=(k===p-1)?-1:0;if(id(ch[k],c)!==need){ok=false;break;}}
+    if(!ok)continue;ch[p]=c;if(bt(p+1))return true;}ch.length=p;return false;})(0);return ch;})();
+  const a8=(function(){const s=new Set();for(let i=0;i<8;i++)for(let j=i;j<8;j++){
+    const v=new Float64Array(8);for(let k=i;k<=j;k++)for(let c=0;c<8;c++)v[c]+=roots[a8chain[k]][c];
+    const pi=look(v),ni=look(v.map(x=>-x));if(pi>=0)s.add(pi);if(ni>=0)s.add(ni);}return [...s];})();
+  const vA8=()=>a8.slice();
+  /* Petrie — outermost Coxeter-plane ring (ringOf===7 = the 30-gon) → 30 */
+  const vPet=()=>{const a=[];for(let i=0;i<N;i++)if(ringOf[i]===7)a.push(i);return a;};
+  /* 600-cells — the H4 fold. Project onto the Coxeter-element eigenspace for
+     exponents {1,11,19,29} = the column space of q(Cox), where q kills the other
+     four exponents {7,13,17,23}: q(x)=(x²−2cos14π/30·x+1)(x²−2cos26π/30·x+1).
+     Gram-Schmidt q(Cox)'s columns → orthonormal 4×8 projector; |proj r|² collapses
+     to TWO shells of 120 whose radius ratio is φ — the two 600-cells. (Cox is the
+     base's V6-proven Coxeter element; read-only.) */
+  const _mul=(A,B)=>{const C=[];for(let i=0;i<8;i++){C.push(new Float64Array(8));for(let j=0;j<8;j++){let s=0;for(let k=0;k<8;k++)s+=A[i][k]*B[k][j];C[i][j]=s;}}return C;};
+  const _addS=(A,B,s)=>{const C=[];for(let i=0;i<8;i++){C.push(new Float64Array(8));for(let j=0;j<8;j++)C[i][j]=A[i][j]+s*B[i][j];}return C;};
+  const _I=(function(){const M=[];for(let i=0;i<8;i++){M.push(new Float64Array(8));M[i][i]=1;}return M;})();
+  const _vd=(a,b)=>{let s=0;for(let k=0;k<8;k++)s+=a[k]*b[k];return s;};
+  const c7=Math.cos(14*Math.PI/30), c13=Math.cos(26*Math.PI/30);
+  const Cx2=_mul(Cox,Cox);
+  const Q=_mul(_addS(_addS(Cx2,Cox,-2*c7),_I,1),_addS(_addS(Cx2,Cox,-2*c13),_I,1));
+  const basis=[];
+  for(let j=0;j<8&&basis.length<4;j++){const v=new Float64Array(8);for(let i=0;i<8;i++)v[i]=Q[i][j];
+    for(const u of basis){const p=_vd(v,u);for(let k=0;k<8;k++)v[k]-=p*u[k];}
+    const n=Math.sqrt(_vd(v,v));if(n>1e-6){for(let k=0;k<8;k++)v[k]/=n;basis.push(v);}}
+  const r2=roots.map(r=>{let s=0;for(const u of basis){const c=_vd(r,u);s+=c*c;}return s;});
+  let rmin=Infinity,rmax=-Infinity;for(const x of r2){if(x<rmin)rmin=x;if(x>rmax)rmax=x;}
+  const vC600i=()=>{const a=[];for(let i=0;i<N;i++)if(Math.abs(r2[i]-rmin)<Math.abs(r2[i]-rmax))a.push(i);return a;};
+  const vC600o=()=>{const a=[];for(let i=0;i<N;i++)if(Math.abs(r2[i]-rmin)>=Math.abs(r2[i]-rmax))a.push(i);return a;};
+  return {same, verify:{d8:vD8,e7:vE7,e6:vE6,a8:vA8,petrie:vPet,c600i:vC600i,c600o:vC600o},
+    meta:{E7_R0,E6_A,E6_B,a8chain:a8chain.slice(),h4basis:basis.length,phi:Math.sqrt(rmax/rmin)}};
+})();
+
+/* --- register one Illuminator layer per sub-object (auto-mounts + boots) --- */
+function _registerIllum(spec){
+  let member=_ILLUM.verify[spec.key]();
+  /* Amendment-C demo: ?illumbootfail=1 corrupts E6's membership so its V-check
+     fails at boot → E6 alone forced dark; base ALL_GREEN untouched. */
+  if(_illumBootFail && spec.id==="illum-e6"){member=member.slice(0,-1);member.push(_ILLUM.meta.E6_A);}
+  registerLayer({
+    id:spec.id, name:spec.name, group:"illuminator", order:spec.order,
+    defaultOn:(_illumFail && spec.id==="illum-e7"),   /* off normally; fail-demo pre-arms E7 ON */
+    data:{roots:member, hue:spec.hue, ringR:spec.ringR, key:spec.key, expect:spec.expect},
+    controls:{toggle:true,intensity:true},
+    draw(ctx,coords,style){
+      /* Amendment-B demo: ?illumfail=1 → E7's draw throws (that layer darkens, base survives). */
+      if(_illumFail && this.id==="illum-e7")throw new Error("demo: illuminator draw() intentionally threw");
+      const k=style.intensity, hue=style.hue, R=this.data.ringR;
+      ctx.lineWidth=1.8; ctx.strokeStyle=`hsla(${hue},85%,62%,${0.85*k})`;   /* alpha baked in — leaks no globalAlpha */
+      for(const idx of this.data.roots){
+        const x=coords.x(idx), y=coords.y(idx);
+        if(!isFinite(x)||!isFinite(y))continue;
+        ctx.beginPath();ctx.arc(x,y,R,0,6.2832);ctx.stroke();
+      }
+    },
+    bootCheck(){                                       /* V14+ — DISPLAY-ONLY (Amendment C) */
+      const want=_ILLUM.verify[this.data.key]();       /* fresh, independent re-derivation */
+      const got=this.data.roots;
+      const ok = got.length===this.data.expect && want.length===this.data.expect &&
+                 new Set(got).size===got.length && _ILLUM.same(got,want);
+      return ["V"+spec.vnum+" · "+this.id,
+        `${got.length} roots = ${spec.rule} · ${ok?"membership re-derived ✓":"MISMATCH"}`, ok];
+    }
+  });
+}
+[ /* id, name, hue, ringR, order, key, expect, vnum, rule(short display) */
+  {id:"illum-petrie", name:"Petrie (30)",           hue:48,  ringR:6,  order:20, key:"petrie", expect:30,  vnum:15, rule:"outermost Coxeter ring"},
+  {id:"illum-d8",     name:"D8 (112)",              hue:195, ringR:8,  order:30, key:"d8",     expect:112, vnum:16, rule:"all-integer-coord roots"},
+  {id:"illum-e7",     name:"E7 (126)",              hue:35,  ringR:10, order:40, key:"e7",     expect:126, vnum:17, rule:"⟂ r0=roots[1]"},
+  {id:"illum-e6",     name:"E6 (72)",               hue:280, ringR:12, order:50, key:"e6",     expect:72,  vnum:18, rule:"⟂ A2{roots[1],roots[6]}"},
+  {id:"illum-a8",     name:"A8 (72)",               hue:130, ringR:9,  order:60, key:"a8",     expect:72,  vnum:19, rule:"A8-chain contiguous sums"},
+  {id:"illum-600i",   name:"600-cell inner (120)",  hue:345, ringR:7,  order:70, key:"c600i",  expect:120, vnum:20, rule:"H4-fold inner shell"},
+  {id:"illum-600o",   name:"600-cell outer ×φ (120)",hue:15, ringR:11, order:80, key:"c600o",  expect:120, vnum:21, rule:"H4-fold outer shell ×φ"}
+].forEach(_registerIllum);
+
+/* ==========================================================================
+   LANE C · LINEAGE ABSORPTION — UNBOUNDED-AS-LAYER  (E8-LANE-C-LINEAGE-001)
+   ADDITIVE-ONLY. Registers ONE layer via registerLayer() — the sanctioned
+   Lane B/C entry point. Touches no frozen region, no Lane A socket code.
+
+   PORT SCOPE (honesty gate, contract §2 + Phase-1 verdict):
+   The Unbounded engine (E8_DEEP_ENGINE_v2_UNBOUNDED) is a renormalizing
+   fractal-dive: a camera that descends forever through nested 240-star skies,
+   recoloring each depth-level 28° around the palette. Its RECURSIVE MULTI-SKY
+   RENDERER and its ZOOM/depthStack CAMERA cannot be a pure additive Canvas-2D
+   layer (a layer is handed only the CURRENT sky's screen coords via COORDS,
+   never nested-sky transforms, and may not own/drive host zoom) — AND they do
+   not need to be: the host BASE already IS that dive (drawLattice recursion +
+   rebase() renormalization, the v3-Atlas ancestor of Unbounded's camera).
+   What is genuinely Unbounded-specific and NOT in the base is its VISIBLE
+   DESCENT SIGNATURE: the depth-shifted palette (28°/level) + glow/pinpoint
+   star treatment. THAT is what this layer faithfully ports — an additive
+   depth-tint wash over the current sky, keyed to the host's live descent
+   depth. "Absorbed as layer," not faked-complete. The recursive-camera part
+   is flagged (see out/UNBOUNDED_LAYER_BUILD_NOTES.md), not forced.
+
+   ONE HOST-STATE READ (flagged): draw() reads host camera depth
+   `path.length + Math.max(z,0)` from module scope — READ-ONLY, never written;
+   not a frozen-engine internal, not fx/fy. If Root wants strict API purity the
+   minimal hook is adding `depth` to the dispatch `style` object (a 1-line
+   Lane-A change) — NOT made here in Lane C.
+   ========================================================================== */
+(function registerUnboundedDescent(){
+  /* ported Unbounded v2 depth-palette LAW — self-contained; adds no host globals */
+  const PAL=[[245,233,200],[217,196,140],[199,171,115],[159,176,204],
+             [127,178,242],[74,158,255],[46,111,208],[191,227,255]]; /* 8 ring colors */
+  const LEVEL_HUE_SHIFT=28;                              /* 28°/level — Unbounded's law */
+  function rgb2hsl(r,g,b){r/=255;g/=255;b/=255;
+    const mx=Math.max(r,g,b),mn=Math.min(r,g,b);let h,s,l=(mx+mn)/2;
+    if(mx===mn){h=s=0;}else{const d=mx-mn;s=l>0.5?d/(2-mx-mn):d/(mx+mn);
+      switch(mx){case r:h=(g-b)/d+(g<b?6:0);break;case g:h=(b-r)/d+2;break;default:h=(r-g)/d+4;}
+      h*=60;}return[h,s,l];}
+  function hsl2rgb(h,s,l){h=((h%360)+360)%360/360;let r,g,b;
+    if(s===0){r=g=b=l;}else{const q=l<0.5?l*(1+s):l+s-l*s,p=2*l-q;
+      const f=(p,q,t)=>{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;
+        if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p;};
+      r=f(p,q,h+1/3);g=f(p,q,h);b=f(p,q,h-1/3);}
+    return[Math.round(r*255),Math.round(g*255),Math.round(b*255)];}
+  const palHSL=PAL.map(c=>rgb2hsl(c[0],c[1],c[2]));
+  function levelColors(level){const shift=level*LEVEL_HUE_SHIFT,absL=Math.abs(level);
+    return palHSL.map(hsl=>{const h=hsl[0]+shift,
+      s=Math.min(1,hsl[1]+0.04*absL),
+      l=Math.max(0.45,Math.min(0.82,hsl[2]+0.015*Math.sin(level*0.7)));
+      return hsl2rgb(h,s,l);});}          /* 8 depth-shifted RGB (no cache — bounded per frame) */
+
+  const _UNB_FAIL=/[?&]unbfail=1/.test(location.search);      /* draw() throws (proves Amend. B) */
+  const _UNB_BOOTFAIL=/[?&]unbbootfail=1/.test(location.search); /* V22 fails (proves Amend. C) */
+
+  registerLayer({
+    id:"unbounded-descent", name:"Unbounded Descent", group:"lineage",
+    defaultOn:_UNB_FAIL,            /* normally off; the throw-demo pre-arms it ON like ref-ring0 */
+    order:20,                       /* paints over ref(10), under illuminator(50) */
+    data:{ hue:38, all:true },      /* whole-sky depth wash: membership = all 240 (no subset to prove) */
+    controls:{toggle:true,intensity:true},
+    draw(ctx,coords,style){
+      if(_UNB_FAIL)throw new Error("demo: unbounded-descent draw() intentionally threw");
+      const depth=path.length+Math.max(z,0);   /* host camera depth — READ-ONLY, never written */
+      const cols=levelColors(depth);
+      const k=Math.max(0,Math.min(1,style.intensity));
+      const inView=(x,y)=>x>-40&&x<Wpx+40&&y>-40&&y<Hpx+40;  /* Wpx/Hpx read-only */
+      for(let g=0;g<8;g++){const c=cols[g];
+        ctx.fillStyle=`rgb(${c[0]},${c[1]},${c[2]})`;
+        ctx.globalAlpha=0.16*k;                 /* glow halo — Unbounded's descent bloom */
+        ctx.beginPath();
+        for(let i=0;i<240;i++){if(ringOf[i]!==g)continue;
+          const x=coords.x(i),y=coords.y(i);if(!inView(x,y))continue;
+          ctx.moveTo(x+6.5,y);ctx.arc(x,y,6.5,0,6.2832);}
+        ctx.fill();
+        ctx.globalAlpha=0.85*k;                 /* core tint */
+        ctx.beginPath();
+        for(let i=0;i<240;i++){if(ringOf[i]!==g)continue;
+          const x=coords.x(i),y=coords.y(i);if(!inView(x,y))continue;
+          ctx.moveTo(x+2.3,y);ctx.arc(x,y,2.3,0,6.2832);}
+        ctx.fill();}
+      ctx.globalAlpha=0.5*k;                     /* white pinpoint sparkle — one pass */
+      ctx.fillStyle="rgba(255,255,255,1)";
+      ctx.beginPath();
+      for(let i=0;i<240;i++){const x=coords.x(i),y=coords.y(i);if(!inView(x,y))continue;
+        ctx.moveTo(x-0.6+0.9,y-0.6);ctx.arc(x-0.6,y-0.6,0.9,0,6.2832);}
+      ctx.fill();
+    },
+    bootCheck(){                     /* V22 · DISPLAY-ONLY (Amend. C): proves the ported LAW, not trust */
+      const s0=levelColors(0), s3=levelColors(3);
+      let valid=s0.length===8&&s3.length===8;
+      for(const arr of[s0,s3])for(const c of arr)for(const ch of c)
+        if(!(Number.isFinite(ch)&&ch>=0&&ch<=255))valid=false;
+      const h0=rgb2hsl(s0[5][0],s0[5][1],s0[5][2])[0];   /* ring5 = blue, chromatic */
+      const h3=rgb2hsl(s3[5][0],s3[5][1],s3[5][2])[0];
+      const dh=(((h3-h0)%360)+360)%360;
+      const shiftOK=Math.abs(dh-((3*LEVEL_HUE_SHIFT)%360))<6;
+      const ok=!_UNB_BOOTFAIL&&valid&&shiftOK&&LEVEL_HUE_SHIFT===28;
+      return ["V22 · unbounded-descent",
+        `depth palette = Unbounded v2 (28°/lvl) · Δhue/3lvl ${dh.toFixed(1)}° · ${ok?"faithful — law derivable":"MISMATCH"}`, ok];
+    }
+  });
+})();
+
+runLayerBootChecks();   /* append layer provenance to the boot display */
+mountLayerPanel();      /* auto-mount toggles/sliders from the registry */
+
 /* ---------- lattice renderer ---------- */
 let unitEdges=null,famPaths=null,selPaths=null;
 function buildPaths(){
@@ -1040,6 +1412,25 @@ function frame(now){
 
   drawLattice(curOx,curOy,S,1,0,2,true);
   ctx.globalAlpha=1;
+
+  /* ===== LANE A · LAYER DRAW DISPATCH — Amendment A hook (AFTER base paint) =====
+     Base has fully painted the current lattice; fx/fy now hold its screen coords.
+     Layers get COORDS (read-only snapshot), never the live fx/fy that backs pick().
+     Iterated in registry `order`; each sandboxed per Amendment B. */
+  if(_layersDirty)mountLayerPanel();
+  if(LAYERS.length){
+    _snapshotCoords();
+    for(const L of LAYERS){
+      if(!L.on||L._dark||!L.draw)continue;
+      ctx.save();                                   /* Amendment B: sandbox ctx state */
+      try{ L.draw.call(L,ctx,COORDS,{hue:L.data.hue,intensity:L.intensity,t:tGlobal}); }
+      catch(err){ L._dark=true; _layersDirty=true;  /* THIS layer goes dark; base + others survive */
+        if(console&&console.warn)console.warn("[LANE A] layer '"+L.id+"' went dark:",err&&err.message); }
+      ctx.restore();
+    }
+    ctx.globalAlpha=1;                              /* Amendment B: base-safe reset for next frame */
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+  }
 
   const depth=path.length+Math.max(z,0), mag=depth*LOG10L;
   const magStr=mag<6?("×"+Math.pow(10,mag).toFixed(1))
