@@ -709,18 +709,25 @@ let lastInput=0;
 ['pointerdown','wheel','touchstart'].forEach(ev=>addEventListener(ev,()=>lastInput=performance.now(),{passive:true}));
 
 // ═══ loop ═══
-function resize(){ const w=innerWidth,h=innerHeight; if(w<1||h<1) return; renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); controls.handleResize(); }
+function resize(){ const w=canvas.clientWidth||innerWidth, h=canvas.clientHeight||innerHeight; if(w<1||h<1) return; renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); controls.handleResize(); }
 addEventListener('resize', resize);
-// PRERENDER-PROOF (FIX-034): a browser-prerendered / bfcached document can init at a stale or 0×0 viewport; the
-// one-shot resize() then locks the canvas to the wrong size (the clipped-render class), or NaNs camera.aspect at
-// 0×0. Re-run sizing on every (re)show/activation, keep the live resize listener, and skip the degenerate 0-size.
+// PRERENDER-PROOF (FIX-034) + SELF-HEALING (FIX-035): a browser-prerendered/bfcached doc can init at a stale or
+// 0×0 viewport, and event-based re-size can still miss it (Chrome's omnibox prerender clipped the apex through
+// FIX-034). resize() now sizes to the canvas's own CSS box (clientWidth — immune to a lying innerWidth), and the
+// tick loop re-runs it whenever the backing store disagrees with clientWidth×dpr → any sizing poison, any source,
+// self-heals within one frame. Events + ResizeObserver stay as belt-and-suspenders; 0-size still skipped (NaN guard).
 addEventListener('pageshow', resize);
 addEventListener('visibilitychange', ()=>{ if(!document.hidden) resize(); });
 if(document.prerendering){ document.addEventListener('prerenderingchange', resize, { once:true }); }
+try{ new ResizeObserver(resize).observe(canvas); }catch(_){}
 resize();
 const fpsEl=document.getElementById('fps'), dprEl=document.getElementById('dprv'), telEl=document.getElementById('tel'); dprEl.textContent=dpr;
 let last=performance.now(), frames=0, facc=0, slow=0, lastDs=0.016, phase='idle', telAcc=0;
 function tick(t){ const dt=t-last; last=t; lastDs=Math.min(0.05,dt/1000); frames++; facc+=dt; telAcc+=dt;
+  // FIX-035 self-heal: if the WebGL backing store disagrees with the canvas's live CSS box × dpr (prerender poison,
+  // any source), re-size. Cheap per-frame compare; cures the clip within one frame regardless of which event fired.
+  { const cw=canvas.clientWidth, ch=canvas.clientHeight;
+    if(cw>0 && ch>0 && (Math.abs(canvas.width-cw*dpr)>1 || Math.abs(canvas.height-ch*dpr)>1)) resize(); }
   if(facc>=500){ const fps=Math.round(1000/(facc/frames)); fpsEl.textContent=fps;
     if(!busy() && Math.abs(zoom-1)<0.05){ if(fps<50){ if(++slow>=6 && dpr>1){ dpr=Math.max(1,dpr-0.5); renderer.setPixelRatio(dpr); dprEl.textContent=dpr; slow=0; } } else slow=0; }
     frames=0; facc=0; }
@@ -771,7 +778,7 @@ renderMap();   // init the mapping layer (empty)
     selectStar(id); } } }catch(_){} })();
 
 // ═══ TEST HOOK (inert; drives rtcheck.cjs gesture-driven net) ═══
-try { self.__su2 = { camera, controls, world, field:()=>field, spare:()=>spare, nodes:D.nodes, ptsGeo, tick,
+try { self.__su2 = { camera, controls, world, field:()=>field, spare:()=>spare, nodes:D.nodes, ptsGeo, tick, canvasEl:canvas,
   depth:()=>divePath.length, zoom:()=>zoom, scroll:(dy)=>{ framing=null; zoom*=Math.exp(-dy*ZSPEED); },
   select:selectStar, plateDisplay:()=>plate.style.display, glow:applyStarGlow, release, K, D0,
   edgeApplied:()=>_edgeApplied, setEdges:(n)=>{ lineCount=Math.round(n); applyEdgeCount(lineCount); }, setView,
