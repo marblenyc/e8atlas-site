@@ -709,8 +709,15 @@ let lastInput=0;
 ['pointerdown','wheel','touchstart'].forEach(ev=>addEventListener(ev,()=>lastInput=performance.now(),{passive:true}));
 
 // ═══ loop ═══
-function resize(){ const w=innerWidth,h=innerHeight; renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); controls.handleResize(); }
-addEventListener('resize', resize); resize();
+function resize(){ const w=innerWidth,h=innerHeight; if(w<1||h<1) return; renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); controls.handleResize(); }
+addEventListener('resize', resize);
+// PRERENDER-PROOF (FIX-034): a browser-prerendered / bfcached document can init at a stale or 0×0 viewport; the
+// one-shot resize() then locks the canvas to the wrong size (the clipped-render class), or NaNs camera.aspect at
+// 0×0. Re-run sizing on every (re)show/activation, keep the live resize listener, and skip the degenerate 0-size.
+addEventListener('pageshow', resize);
+addEventListener('visibilitychange', ()=>{ if(!document.hidden) resize(); });
+if(document.prerendering){ document.addEventListener('prerenderingchange', resize, { once:true }); }
+resize();
 const fpsEl=document.getElementById('fps'), dprEl=document.getElementById('dprv'), telEl=document.getElementById('tel'); dprEl.textContent=dpr;
 let last=performance.now(), frames=0, facc=0, slow=0, lastDs=0.016, phase='idle', telAcc=0;
 function tick(t){ const dt=t-last; last=t; lastDs=Math.min(0.05,dt/1000); frames++; facc+=dt; telAcc+=dt;
