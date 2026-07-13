@@ -4,7 +4,11 @@
 <style>
   :root{ --navy:#070C18; --gold:#B08D57; --bright:#E9C87A; --serif:"Cochin","Didot","Bodoni MT",Garamond,serif; }
   *{box-sizing:border-box} html,body{margin:0;height:100%;background:var(--navy);color:#cdd7e0;font-family:var(--serif);overflow:hidden}
-  #c{position:fixed;inset:0;display:block}
+  /* FIX-036: the canvas layout box is PINNED to a sized container (fixed, viewport-filling). The canvas fills it at
+     100%/100% absolutely, so its CSS box NEVER derives from its width/height attributes — the backing store (set by
+     renderer.setSize) changes attributes only, never the layout box. Kills the dpr<1 geometric-collapse loop. */
+  #cwrap{position:fixed;inset:0;overflow:hidden}
+  #c{position:absolute;inset:0;width:100%;height:100%;display:block}
   .mast{position:fixed;top:18px;left:24px;z-index:5;pointer-events:none}
   .mast h1{margin:0;font-size:26px;letter-spacing:.14em;color:var(--bright);font-weight:600}
   .mast .sub{font-size:12px;letter-spacing:.28em;color:var(--gold);opacity:.85;margin-top:2px}
@@ -98,7 +102,7 @@
 </style></head>
 <body>
 <div class="errstrip" id="errstrip"></div>
-<canvas id="c"></canvas>
+<div id="cwrap"><canvas id="c"></canvas></div>
 <div class="mast"><h1>E8&nbsp;ATLAS</h1><div class="sub">A REPOSITORY OF STRUCTURE · VOLUME I</div></div>
 <div class="panel">
   <h2>GeoForge · E8</h2>
@@ -221,6 +225,7 @@ function atlasAddr(focus){ return 'E8@' + D.meta.src_sha + ':0'
 function anchorOf(id){ return { address: atlasAddr(id), depth: divePath.length, root_index: id, path: divePath.concat([id]), src: D.meta.src_sha }; }
 
 const canvas = document.getElementById('c');
+const cwrap = document.getElementById('cwrap');   // FIX-036: the sized container; resize() reads ITS client box (never the canvas attributes)
 const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:false });
 let dpr = Math.min(devicePixelRatio || 1, 2); renderer.setPixelRatio(dpr);
 const scene = new THREE.Scene(); scene.background = new THREE.Color(NAVY);
@@ -715,7 +720,11 @@ let lastInput=0;
 // ═══ loop ═══
 // ATLAS-CLIP-DIAGNOSTIC-OVERLAY — live measurement state (instrument only; no fix decisions here).
 const _diag = { f35:0, cw:0, ch:0, preBW:0, preBH:0, postBW:0, postBH:0, prerenderEver: (typeof document!=='undefined' && !!document.prerendering) };
-function resize(){ const w=canvas.clientWidth||innerWidth, h=canvas.clientHeight||innerHeight; if(w<1||h<1) return; renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); controls.handleResize(); }
+function resize(){ const w=cwrap.clientWidth||innerWidth, h=cwrap.clientHeight||innerHeight; if(w<1||h<1) return;
+  // FIX-036 idempotent: the container box is CSS-pinned, so setSize changes only the backing store. Skip when the
+  // backing already matches box×dpr (>1px tolerance) — this is the loop-breaker: resize() called on a stable box is a no-op.
+  if(Math.abs(canvas.width - Math.round(w*dpr))<=1 && Math.abs(canvas.height - Math.round(h*dpr))<=1) return;
+  renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); controls.handleResize(); }
 addEventListener('resize', resize);
 // PRERENDER-PROOF (FIX-034) + SELF-HEALING (FIX-035): a browser-prerendered/bfcached doc can init at a stale or
 // 0×0 viewport, and event-based re-size can still miss it (Chrome's omnibox prerender clipped the apex through
@@ -725,7 +734,7 @@ addEventListener('resize', resize);
 addEventListener('pageshow', resize);
 addEventListener('visibilitychange', ()=>{ if(!document.hidden) resize(); });
 if(document.prerendering){ document.addEventListener('prerenderingchange', resize, { once:true }); }
-try{ new ResizeObserver(resize).observe(canvas); }catch(_){}
+try{ new ResizeObserver(resize).observe(cwrap); }catch(_){}   // FIX-036: observe the PINNED container (changing the canvas backing no longer changes its box → no RO loop)
 resize();
 const fpsEl=document.getElementById('fps'), dprEl=document.getElementById('dprv'), telEl=document.getElementById('tel'); dprEl.textContent=dpr;
 const diagEl=document.getElementById('diag');
@@ -733,6 +742,7 @@ function updateDiag(){ if(!diagEl) return; const de=document.documentElement, vv
   diagEl.textContent =
     'innerW x H     : '+innerWidth+' x '+innerHeight+'\n'+
     'docEl client   : '+de.clientWidth+' x '+de.clientHeight+'\n'+
+    'container box  : '+cwrap.clientWidth+' x '+cwrap.clientHeight+'\n'+
     'canvas CSS box : '+canvas.clientWidth+' x '+canvas.clientHeight+'\n'+
     'canvas backing : '+canvas.width+' x '+canvas.height+'\n'+
     'devicePixelR   : '+devicePixelRatio+'  (render dpr '+dpr+')\n'+
@@ -744,7 +754,7 @@ let last=performance.now(), frames=0, facc=0, slow=0, lastDs=0.016, phase='idle'
 function tick(t){ const dt=t-last; last=t; lastDs=Math.min(0.05,dt/1000); frames++; facc+=dt; telAcc+=dt;
   // FIX-035 self-heal + DIAGNOSTIC instrumentation: re-size on backing-vs-CSS mismatch, and record whether it fired
   // + the pre/post values for the overlay (no new fix — the existing guard, measured).
-  { const cw=canvas.clientWidth, ch=canvas.clientHeight;
+  { const cw=cwrap.clientWidth, ch=cwrap.clientHeight;
     if(cw>0 && ch>0 && (Math.abs(canvas.width-cw*dpr)>1 || Math.abs(canvas.height-ch*dpr)>1)){
       _diag.f35++; _diag.cw=cw; _diag.ch=ch; _diag.preBW=canvas.width; _diag.preBH=canvas.height; resize(); _diag.postBW=canvas.width; _diag.postBH=canvas.height; } }
   if(facc>=500){ const fps=Math.round(1000/(facc/frames)); fpsEl.textContent=fps;
@@ -829,6 +839,8 @@ try { self.__su2 = { camera, controls, world, field:()=>field, spare:()=>spare, 
   descendStep, ascendStep, panBy, curView:()=>curView, frameIsCox:()=>frameIsCox(),
   setMotion:(v)=>{ motionMode=v; if(v!=='8d') world.rotation.z=0; }, motionMode:()=>motionMode, worldSpinZ:()=>world.rotation.z,
   nodePz:(i)=>D.nodes[i].pz, target:()=>({x:controls.target.x,y:controls.target.y,z:controls.target.z}),
+  // ── FIX-036 convergence test surface ──
+  renderer, cwrapEl:cwrap, resize, setDpr:(x)=>{ dpr=x; renderer.setPixelRatio(x); },
   // Tier 3 — polytope overlays
   setPoly, polyActive:()=>polyActive, polyReady:(k)=>!!(D.poly[k]&&D.poly[k].ready),
   polyMembers:()=>polyActive?D.poly[polyActive].members.length:0, polyEdgeCount:()=>polyEdgeGeo.drawRange.count/2,
