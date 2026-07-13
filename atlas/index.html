@@ -39,9 +39,6 @@
   .stat b{color:var(--bright);font-weight:600} .stat .addr{color:#8fb6d6;letter-spacing:.03em}
   .tel{position:fixed;left:24px;bottom:38px;z-index:5;font:11px/1.4 ui-monospace,Consolas,monospace;letter-spacing:.02em;color:#6f86a0}
   .tel b{color:#9ad0ff;font-weight:600}
-  /* ATLAS-CLIP-DIAGNOSTIC-OVERLAY — dependency-free live measurements; fixed, high z, opaque so it shows even if the canvas is clipped */
-  .diag{position:fixed;top:74px;left:24px;z-index:99;font:10px/1.5 ui-monospace,Consolas,monospace;letter-spacing:.01em;
-    background:rgba(0,0,0,.82);color:#3cff6a;padding:6px 9px;white-space:pre;pointer-events:none;border:1px solid #2a7;border-radius:4px}
   /* PREMIUM PASS-003 · the popup reads as a plate from the Atlas. OPAQUE plate-press material — NO backdrop-filter
      (its per-frame blur over the enlarged popup, recompositing on the animating WebGL canvas, was the 2fps cause). */
   .plate{position:fixed;left:24px;bottom:24px;z-index:6;width:314px;display:none;max-height:calc(100vh - 112px);overflow-y:auto;
@@ -163,7 +160,6 @@
   </div>
 </div>
 <div class="tel" id="tel"></div>
-<div class="diag" id="diag">diag: booting…</div>
 <div class="stat" id="stat"><b id="fps">—</b> fps · dpr <b id="dprv">2</b> · depth <b id="depth">0</b> · <span class="addr" id="addr"></span></div>
 <div class="lbl" id="lbl"></div>
 <div class="hint">drag&nbsp;=&nbsp;orbit&nbsp;view&nbsp;(free-look) · scroll&nbsp;=&nbsp;descend/climb · click&nbsp;star&nbsp;=&nbsp;aim · click&nbsp;empty&nbsp;=&nbsp;recentre</div>
@@ -718,8 +714,6 @@ let lastInput=0;
 ['pointerdown','wheel','touchstart'].forEach(ev=>addEventListener(ev,()=>lastInput=performance.now(),{passive:true}));
 
 // ═══ loop ═══
-// ATLAS-CLIP-DIAGNOSTIC-OVERLAY — live measurement state (instrument only; no fix decisions here).
-const _diag = { f35:0, cw:0, ch:0, preBW:0, preBH:0, postBW:0, postBH:0, prerenderEver: (typeof document!=='undefined' && !!document.prerendering) };
 function resize(){ const w=cwrap.clientWidth||innerWidth, h=cwrap.clientHeight||innerHeight; if(w<1||h<1) return;
   // FIX-036 idempotent: the container box is CSS-pinned, so setSize changes only the backing store. Skip when the
   // backing already matches box×dpr (>1px tolerance) — this is the loop-breaker: resize() called on a stable box is a no-op.
@@ -737,26 +731,11 @@ if(document.prerendering){ document.addEventListener('prerenderingchange', resiz
 try{ new ResizeObserver(resize).observe(cwrap); }catch(_){}   // FIX-036: observe the PINNED container (changing the canvas backing no longer changes its box → no RO loop)
 resize();
 const fpsEl=document.getElementById('fps'), dprEl=document.getElementById('dprv'), telEl=document.getElementById('tel'); dprEl.textContent=dpr;
-const diagEl=document.getElementById('diag');
-function updateDiag(){ if(!diagEl) return; const de=document.documentElement, vv=window.visualViewport;
-  diagEl.textContent =
-    'innerW x H     : '+innerWidth+' x '+innerHeight+'\n'+
-    'docEl client   : '+de.clientWidth+' x '+de.clientHeight+'\n'+
-    'container box  : '+cwrap.clientWidth+' x '+cwrap.clientHeight+'\n'+
-    'canvas CSS box : '+canvas.clientWidth+' x '+canvas.clientHeight+'\n'+
-    'canvas backing : '+canvas.width+' x '+canvas.height+'\n'+
-    'devicePixelR   : '+devicePixelRatio+'  (render dpr '+dpr+')\n'+
-    'visualViewport : '+(vv ? (vv.width.toFixed(0)+' x '+vv.height.toFixed(0)+'  scale '+vv.scale.toFixed(3)) : 'n/a')+'\n'+
-    'prerendering   : now='+(!!document.prerendering)+'  ever='+_diag.prerenderEver+'\n'+
-    'FIX-035 guard  : fired '+_diag.f35+'x'+(_diag.f35 ? ('  last CSS '+_diag.cw+'x'+_diag.ch+'  backing '+_diag.preBW+'x'+_diag.preBH+' -> '+_diag.postBW+'x'+_diag.postBH) : ''); }
-updateDiag();
 let last=performance.now(), frames=0, facc=0, slow=0, lastDs=0.016, phase='idle', telAcc=0;
 function tick(t){ const dt=t-last; last=t; lastDs=Math.min(0.05,dt/1000); frames++; facc+=dt; telAcc+=dt;
-  // FIX-035 self-heal + DIAGNOSTIC instrumentation: re-size on backing-vs-CSS mismatch, and record whether it fired
-  // + the pre/post values for the overlay (no new fix — the existing guard, measured).
+  // FIX-035 self-heal (dormant net; FIX-036 pin means it fires ~0×): re-size on backing-vs-container-box mismatch.
   { const cw=cwrap.clientWidth, ch=cwrap.clientHeight;
-    if(cw>0 && ch>0 && (Math.abs(canvas.width-cw*dpr)>1 || Math.abs(canvas.height-ch*dpr)>1)){
-      _diag.f35++; _diag.cw=cw; _diag.ch=ch; _diag.preBW=canvas.width; _diag.preBH=canvas.height; resize(); _diag.postBW=canvas.width; _diag.postBH=canvas.height; } }
+    if(cw>0 && ch>0 && (Math.abs(canvas.width-cw*dpr)>1 || Math.abs(canvas.height-ch*dpr)>1)) resize(); }
   if(facc>=500){ const fps=Math.round(1000/(facc/frames)); fpsEl.textContent=fps;
     if(!busy() && Math.abs(zoom-1)<0.05){ if(fps<50){ if(++slow>=6 && dpr>1){ dpr=Math.max(1,dpr-0.5); renderer.setPixelRatio(dpr); dprEl.textContent=dpr; slow=0; } } else slow=0; }
     frames=0; facc=0; }
@@ -792,7 +771,7 @@ function tick(t){ const dt=t-last; last=t; lastDs=Math.min(0.05,dt/1000); frames
   _v.subVectors(camera.position, controls.target); const L=_v.length()||1; _v.multiplyScalar((D0/zoom)/L); camera.position.copy(controls.target).add(_v);
   // FIX-030: edge count is the user's slider (authoritative) — NOT re-applied per frame (that capped it to 800 during descent).
 
-  if(telAcc>=250){ telAcc=0; telEl.innerHTML='dive <b>'+phase+'</b> · zoom <b>'+zoom.toFixed(2)+'</b> · d <b>'+(D0/zoom).toFixed(0)+'</b> · aim <b>'+(aimIdx>=0?aimIdx:'—')+'</b> · fld '+field.pmat.opacity.toFixed(2)+' · chd '+(transient?transient.pmat.opacity.toFixed(2):'—')+' · '+(lastCommit||''); updateDiag(); }
+  if(telAcc>=250){ telAcc=0; telEl.innerHTML='dive <b>'+phase+'</b> · zoom <b>'+zoom.toFixed(2)+'</b> · d <b>'+(D0/zoom).toFixed(0)+'</b> · aim <b>'+(aimIdx>=0?aimIdx:'—')+'</b> · fld '+field.pmat.opacity.toFixed(2)+' · chd '+(transient?transient.pmat.opacity.toFixed(2):'—')+' · '+(lastCommit||''); }
   renderer.render(scene,camera); requestAnimationFrame(tick); }
 requestAnimationFrame(tick);
 
