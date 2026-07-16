@@ -4,6 +4,32 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>E8 ATLAS — A Repository of Structure</title>
+<meta name="description" content="A live projection of the E8 root system — 240 roots in eight dimensions, drawn on the Coxeter plane — with a hall of tables, plates, and interactive instruments for its geometry.">
+<link rel="canonical" href="https://e8atlas.com/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://e8atlas.com/">
+<meta property="og:title" content="E8 Atlas — A Repository of Structure">
+<meta property="og:description" content="The E8 root system, turning: 240 roots in eight dimensions on the Coxeter plane, with tables, plates, and interactive instruments.">
+<meta property="og:image" content="https://e8atlas.com/og-lattice.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="E8 Atlas — A Repository of Structure">
+<meta name="twitter:description" content="The E8 root system, turning: 240 roots in eight dimensions on the Coxeter plane, with tables, plates, and interactive instruments.">
+<meta name="twitter:image" content="https://e8atlas.com/og-lattice.png">
+<style id="lattice-hero-css">
+  #lattice-hero{position:relative;width:100%;height:100vh;min-height:560px;background:#0a101c;overflow:hidden;border-bottom:1px solid var(--line-strong,rgba(180,196,220,.28));}
+  #lattice-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
+  .lattice-fallback-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+  .lattice-overlay{position:absolute;left:0;right:0;bottom:0;padding:0 40px 64px;pointer-events:none;z-index:2;text-align:center;}
+  .lattice-word{font-family:var(--serif,'Cormorant Garamond',Georgia,serif);font-weight:500;font-size:clamp(34px,6vw,68px);letter-spacing:.05em;color:#F6EFDD;text-shadow:0 0 34px rgba(10,16,28,.85);line-height:1;}
+  .lattice-word .e8{font-style:italic;color:#fff;}
+  .lattice-sub{margin-top:11px;font-family:var(--sans,Inter,Arial,sans-serif);font-weight:300;font-size:clamp(11px,1.6vw,15px);letter-spacing:.26em;text-transform:uppercase;color:#a8bad4;}
+  .lattice-cta{display:inline-block;margin-top:22px;pointer-events:auto;font-family:var(--sans,Inter,Arial,sans-serif);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#d8b878;text-decoration:none;border:1px solid rgba(216,184,120,.5);border-radius:7px;padding:11px 20px;background:rgba(10,16,28,.4);transition:color .2s ease,background .2s ease;}
+  .lattice-cta:hover{color:#0a101c;background:#d8b878;}
+  .lattice-scroll{position:absolute;left:0;right:0;bottom:18px;text-align:center;font:400 10px/1 var(--sans,Inter,Arial);letter-spacing:.3em;text-transform:uppercase;color:rgba(168,186,212,.45);z-index:2;pointer-events:none;}
+  @media(max-width:480px){#lattice-hero{height:86vh;min-height:440px;}.lattice-overlay{padding:0 20px 50px;}}
+</style>
 <style>
   :root{
     --bg:            #0a101c;
@@ -450,6 +476,45 @@
 </style>
 </head>
 <body>
+
+<!-- ===== LATTICE HERO — live E8 root system, autorotating. The editorial page continues below, unchanged. ===== -->
+<section id="lattice-hero" aria-label="The E8 root system, a live Coxeter-plane projection">
+  <canvas id="lattice-canvas"></canvas>
+  <noscript><img src="/og-lattice.png" alt="The E8 root system — 240 roots projected on the Coxeter plane" class="lattice-fallback-img"></noscript>
+  <div class="lattice-overlay">
+    <div class="lattice-word"><span class="e8">E8</span> Atlas</div>
+    <div class="lattice-sub">A Repository of Structure</div>
+    <a class="lattice-cta" href="/engines/helm-ph1/">Enter the instrument →</a>
+  </div>
+  <div class="lattice-scroll" aria-hidden="true">scroll ↓</div>
+</section>
+<script src="/lattice-core.js"></script>
+<script src="/lattice-draw.js"></script>
+<script>
+/* Autorotate on load; never a blank/broken canvas — fall back to the static plate. */
+(function(){
+  var host=document.getElementById('lattice-hero'), cv=document.getElementById('lattice-canvas');
+  function fallback(){ try{ if(cv&&cv.parentNode){ var img=new Image(); img.src='/og-lattice.png';
+    img.alt='The E8 root system — Coxeter projection'; img.className='lattice-fallback-img';
+    cv.parentNode.replaceChild(img,cv);} }catch(e){} }
+  try{
+    if(!cv||!window.LatticeCore||!window.drawLattice||!cv.getContext) return fallback();
+    var ctx=cv.getContext('2d'); if(!ctx) return fallback();
+    var core=window.LatticeCore, dpr=Math.min(window.devicePixelRatio||1,2), W=1,H=1;
+    function resize(){ var r=host.getBoundingClientRect(); W=Math.max(1,r.width|0); H=Math.max(1,r.height|0);
+      cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px'; ctx.setTransform(dpr,0,0,dpr,0,0); }
+    resize();
+    var A0=0.19;
+    window.drawLattice(ctx,W,H,A0,core,{bg:true,dpr:dpr}); /* first paint immediately — object present within ms */
+    var reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if(!reduce){
+      var start=null, SPEED=0.06; /* rad/s — a slow, calm turn */
+      (function frame(t){ if(start===null)start=t; window.drawLattice(ctx,W,H,A0+(t-start)/1000*SPEED,core,{bg:true,dpr:dpr}); requestAnimationFrame(frame); })(performance.now());
+    }
+    var rt; window.addEventListener('resize',function(){ clearTimeout(rt); rt=setTimeout(function(){ resize(); if(reduce) window.drawLattice(ctx,W,H,A0,core,{bg:true,dpr:dpr}); },150); });
+  }catch(e){ fallback(); }
+})();
+</script>
 
 <header class="masthead">
   <div class="masthead-inner">
