@@ -28,7 +28,14 @@
   .lattice-cta{display:inline-block;margin-top:22px;pointer-events:auto;font-family:var(--sans,Inter,Arial,sans-serif);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#d8b878;text-decoration:none;border:1px solid rgba(216,184,120,.5);border-radius:7px;padding:11px 20px;background:rgba(10,16,28,.4);transition:color .2s ease,background .2s ease;}
   .lattice-cta:hover{color:#0a101c;background:#d8b878;}
   .lattice-scroll{position:absolute;left:0;right:0;bottom:18px;text-align:center;font:400 10px/1 var(--sans,Inter,Arial);letter-spacing:.3em;text-transform:uppercase;color:rgba(168,186,212,.45);z-index:2;pointer-events:none;}
-  @media(max-width:480px){#lattice-hero{height:86vh;min-height:440px;}.lattice-overlay{padding:0 20px 50px;}}
+  .view-switch{position:absolute;left:0;right:0;top:26px;display:flex;justify-content:center;z-index:3;pointer-events:none;}
+  .vs-pill{display:inline-flex;gap:4px;padding:5px;border-radius:999px;background:rgba(10,16,28,.55);border:1px solid rgba(201,207,216,.18);pointer-events:auto;}
+  .vs-btn{width:46px;height:34px;display:flex;align-items:center;justify-content:center;border:none;border-radius:999px;background:transparent;cursor:pointer;transition:background .2s ease;}
+  .vs-btn svg{width:23px;height:23px;fill:none;stroke:rgba(168,186,212,.7);stroke-width:1.4;}
+  .vs-btn.is-active{background:rgba(216,184,120,.16);}
+  .vs-btn.is-active svg{stroke:#d8b878;}
+  .vs-btn:hover svg{stroke:#F6EFDD;}
+  @media(max-width:480px){#lattice-hero{height:86vh;min-height:440px;}.lattice-overlay{padding:0 20px 50px;}.view-switch{top:16px;}}
 </style>
 <style>
   :root{
@@ -481,6 +488,16 @@
 <section id="lattice-hero" aria-label="The E8 root system, a live Coxeter-plane projection">
   <canvas id="lattice-canvas"></canvas>
   <noscript><img src="/og-lattice.png" alt="The E8 root system — 240 roots projected on the Coxeter plane" class="lattice-fallback-img"></noscript>
+  <div class="view-switch" role="group" aria-label="Choose flat or three-dimensional view">
+    <div class="vs-pill">
+      <button class="vs-btn is-active" data-mode="2d" aria-label="Flat view" title="Flat view">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.4"/></svg>
+      </button>
+      <button class="vs-btn" data-mode="3d" aria-label="Three-dimensional view" title="3D view">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><ellipse cx="12" cy="12" rx="8.5" ry="3.4"/><ellipse cx="12" cy="12" rx="3.4" ry="8.5"/></svg>
+      </button>
+    </div>
+  </div>
   <div class="lattice-overlay">
     <div class="lattice-word"><span class="e8">E8</span> Atlas</div>
     <div class="lattice-sub">A Repository of Structure</div>
@@ -490,8 +507,12 @@
 </section>
 <script src="/lattice-core.js"></script>
 <script src="/lattice-draw.js"></script>
+<script src="/e8-kernel.js"></script>
+<script src="/e8-kernel-l2.js"></script>
 <script>
-/* Autorotate on load; never a blank/broken canvas — fall back to the static plate. */
+/* Apex hero: 2D default (existing path, unchanged) + a 3D view READ FROM THE L2 REGISTRY
+   (E8L2.project('coxeter-3d')) — no three.js, a 2D canvas with z used for depth sort + cueing.
+   Autorotate on load. Any failure -> the static plate. */
 (function(){
   var host=document.getElementById('lattice-hero'), cv=document.getElementById('lattice-canvas');
   function fallback(){ try{ if(cv&&cv.parentNode){ var img=new Image(); img.src='/og-lattice.png';
@@ -504,14 +525,66 @@
     function resize(){ var r=host.getBoundingClientRect(); W=Math.max(1,r.width|0); H=Math.max(1,r.height|0);
       cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px'; ctx.setTransform(dpr,0,0,dpr,0,0); }
     resize();
-    var A0=0.19;
-    window.drawLattice(ctx,W,H,A0,core,{bg:true,dpr:dpr}); /* first paint immediately — object present within ms */
-    var reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if(!reduce){
-      var start=null, SPEED=0.06; /* rad/s — a slow, calm turn */
-      (function frame(t){ if(start===null)start=t; window.drawLattice(ctx,W,H,A0+(t-start)/1000*SPEED,core,{bg:true,dpr:dpr}); requestAnimationFrame(frame); })(performance.now());
+    var A0=0.19, SPEED=0.06, mode='2d';
+
+    /* ---- 3D path: the projection is READ from L2, never authored here ---- */
+    var D=null;
+    function pc(t){ var a=[216,184,120],b=[237,228,206],c=[138,160,190],x,y,f;
+      if(t<0.5){x=a;y=b;f=t/0.5;}else{x=b;y=c;f=(t-0.5)/0.5;}
+      return Math.round(x[0]+(y[0]-x[0])*f)+','+Math.round(x[1]+(y[1]-x[1])*f)+','+Math.round(x[2]+(y[2]-x[2])*f); }
+    function get3D(){ if(D)return D; if(!window.E8||!window.E8L2)return null;
+      var P=window.E8L2.project('coxeter-3d'), R=window.E8.roots(), E=[], i, j;
+      for(i=0;i<240;i++)for(j=i+1;j<240;j++) if(window.E8.inner(R[i],R[j])===1) E.push([i,j]);
+      var r2=[], r2max=0, ext=0;
+      for(i=0;i<240;i++){ var rr=Math.hypot(P[i].x,P[i].y); r2.push(rr); if(rr>r2max)r2max=rr;
+        var e=Math.hypot(P[i].x,P[i].y,P[i].z); if(e>ext)ext=e; }
+      D={P:P,E:E,r2:r2,r2max:r2max,ext:ext}; return D; }
+    function draw3D(angle){
+      var d=get3D(); if(!d){ window.drawLattice(ctx,W,H,angle,core,{bg:true,dpr:dpr}); return; } /* kernel absent -> 2D */
+      var cx=W/2, cy=H/2, scale=Math.min(W,H)*0.42/d.ext;
+      var ca=Math.cos(angle), sa=Math.sin(angle), tilt=0.5, ct=Math.cos(tilt), st=Math.sin(tilt);
+      var g=ctx.createRadialGradient(cx,cy*0.92,0,cx,cy,Math.max(W,H)*0.7);
+      g.addColorStop(0,'#0d1626'); g.addColorStop(0.55,'#0a101c'); g.addColorStop(1,'#070b14');
+      ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+      var sx=new Array(240), sy=new Array(240), sz=new Array(240), i;
+      for(i=0;i<240;i++){ var x=d.P[i].x,y=d.P[i].y,z=d.P[i].z;
+        var x1=x*ca+z*sa, z1=-x*sa+z*ca, y1=y;              /* spin about Y (view transform of the cloud) */
+        var y2=y1*ct - z1*st, z2=y1*st + z1*ct;             /* fixed tilt about X for a readable angle */
+        sx[i]=cx+x1*scale; sy[i]=cy - y2*scale; sz[i]=z2; }
+      var zmin=Infinity,zmax=-Infinity;
+      for(i=0;i<240;i++){ if(sz[i]<zmin)zmin=sz[i]; if(sz[i]>zmax)zmax=sz[i]; }
+      var zr=(zmax-zmin)||1;
+      ctx.globalCompositeOperation='lighter';
+      /* edges: one batched path (fast), faint additive web */
+      ctx.strokeStyle='rgba(150,175,210,0.045)'; ctx.lineWidth=Math.max(0.4,dpr*0.5); ctx.beginPath();
+      for(i=0;i<d.E.length;i++){ var a2=d.E[i][0], b2=d.E[i][1]; ctx.moveTo(sx[a2],sy[a2]); ctx.lineTo(sx[b2],sy[b2]); }
+      ctx.stroke();
+      /* points: sorted back-to-front; near = larger+brighter, far = smaller+dimmer */
+      var ord=[]; for(i=0;i<240;i++)ord.push(i); ord.sort(function(p,q){return sz[p]-sz[q];});
+      for(var o=0;o<240;o++){ i=ord[o];
+        var td=(sz[i]-zmin)/zr, col=pc(d.r2[i]/d.r2max);
+        var rad=(1.0+1.7*td)*dpr, al=(0.30+0.70*td);
+        ctx.fillStyle='rgba('+col+','+(al*0.12).toFixed(3)+')'; ctx.beginPath(); ctx.arc(sx[i],sy[i],rad*2.4,0,6.283185); ctx.fill();
+        ctx.fillStyle='rgba('+col+','+al.toFixed(3)+')';     ctx.beginPath(); ctx.arc(sx[i],sy[i],rad,0,6.283185); ctx.fill(); }
+      ctx.globalCompositeOperation='source-over';
     }
-    var rt; window.addEventListener('resize',function(){ clearTimeout(rt); rt=setTimeout(function(){ resize(); if(reduce) window.drawLattice(ctx,W,H,A0,core,{bg:true,dpr:dpr}); },150); });
+
+    /* 2D branch is the EXACT original call — byte-identical when selected */
+    function draw(angle){ if(mode==='3d'){ draw3D(angle); } else { window.drawLattice(ctx,W,H,angle,core,{bg:true,dpr:dpr}); } }
+
+    draw(A0); /* first paint — 2D default, object present within ms */
+    var reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var start=null;
+    if(!reduce){ (function frame(t){ if(start===null)start=t; draw(A0+(t-start)/1000*SPEED); requestAnimationFrame(frame); })(performance.now()); }
+    var rt; window.addEventListener('resize',function(){ clearTimeout(rt); rt=setTimeout(function(){ resize(); if(reduce) draw(A0); },150); });
+
+    /* view switch — flip mode; 2D stays the default and the known-good spectacle */
+    var btns=host.querySelectorAll('.vs-btn');
+    for(var b=0;b<btns.length;b++){ (function(btn){ btn.addEventListener('click',function(){
+      mode=btn.getAttribute('data-mode');
+      for(var k=0;k<btns.length;k++) btns[k].classList.toggle('is-active', btns[k]===btn);
+      if(reduce) draw(A0);
+    }); })(btns[b]); }
   }catch(e){ fallback(); }
 })();
 </script>
