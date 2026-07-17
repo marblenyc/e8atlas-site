@@ -1,0 +1,8 @@
+# Mutable content at stable URLs — HTML, the kernel + lattice JS, the share card —
+# must revalidate at the edge so a repaint or a takedown propagates immediately
+# instead of lingering behind a long edge TTL (the gold-palette / orrery hazard).
+# There are NO content-hashed immutable assets on this site (all JS/PNG are
+# fixed-name and mutable); if any are ever added under a content hash, give them
+# a more-specific long-TTL rule ABOVE this one.
+/*
+  Cache-Control: public, max-age=0, must-revalidate
