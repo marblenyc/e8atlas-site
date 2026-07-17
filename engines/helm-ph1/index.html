@@ -246,6 +246,7 @@
   <button id="enter">ENTER THE ATLAS</button>
 </div>
 
+<script src="/e8-kernel.js"></script>
 <script>
 "use strict";
 /* =====================================================================
@@ -265,15 +266,28 @@
 const BANKED={radii:[0.238235,0.385473,0.473861,0.572925,0.704294,0.766723,0.927011,1.139572],
   phi:1.618034,eig:1.956295};
 
-/* ---------- verified construction (identical core) ---------- */
-function buildRoots(){const R=[];
-  for(let i=0;i<8;i++)for(let j=i+1;j<8;j++)
-    for(const si of[1,-1])for(const sj of[1,-1]){const r=new Float64Array(8);r[i]=si;r[j]=sj;R.push(r);}
-  for(let m=0;m<256;m++){let b=0;for(let k=0;k<8;k++)if(m&(1<<k))b++;
-    if(b%2)continue;const r=new Float64Array(8);
-    for(let k=0;k<8;k++)r[k]=(m&(1<<k))?-0.5:0.5;R.push(r);}return R;}
+/* ---------- L0 UNFUSE: root VECTORS come from /e8-kernel.js (the single source of E8 truth).
+   The old inline root generator is DELETED. HELM keeps its historical ORDER so every
+   downstream index (proj0, ringOf, edgePairs, and draw order) is byte-identical to before —
+   only the SOURCE of the vectors changes. The kernel is asserted (240 roots) before any draw. ---------- */
+if(typeof E8==="undefined"||!E8||typeof E8.roots!=="function"||E8.roots().length!==240){
+  /* fail loudly — refuse to render a wrong lattice. Matches HELM's own boot-fail convention. */
+  document.documentElement.innerHTML='<body style="background:#0a0e18;color:#ff6b6b;font:18px monospace;padding:48px">HELM BOOT FAIL — E8 kernel (/e8-kernel.js) failed to load 240 roots. Refusing to render.</body>';
+  throw new Error("HELM: E8 kernel (/e8-kernel.js) unavailable or not exactly 240 roots");
+}
 const dot=(a,b)=>{let s=0;for(let k=0;k<8;k++)s+=a[k]*b[k];return s;};
-const roots=buildRoots();
+/* Restore HELM's original generation sequence via a pure comparator on the vectors
+   (integer family before half-integer; then generation order). Proven in a pre-flight to
+   reproduce the old order element-for-element — so no downstream index shifts, no pixel moves. */
+const roots=(function(){
+  function ordKey(v){var nz=[];for(var k=0;k<8;k++)if(v[k]!==0)nz.push(k);
+    if(v.some(function(x){return Math.abs(x)===2;})){var i=nz[0],j=nz[1];return[0,i,j,v[i]>0?0:1,v[j]>0?0:1];}
+    var m=0;for(var k2=0;k2<8;k2++)if(v[k2]<0)m+=(1<<k2);return[1,m];}
+  function cmp(a,b){var ka=ordKey(a),kb=ordKey(b);for(var t=0;t<5;t++){var x=ka[t]||0,y=kb[t]||0;if(x!==y)return x-y;}return 0;}
+  return E8.roots().sort(cmp).map(function(v){          /* <== SCALE DIVISION LINE: integers above, true (0.5/1) coords below */
+    return Float64Array.from(v,function(x){return x/E8.SCALE;});
+  });
+})();
 
 let edgePairs=[],adj=[],specViol=0,maxNormErr=0;
 for(let i=0;i<240;i++){adj.push([]);maxNormErr=Math.max(maxNormErr,Math.abs(dot(roots[i],roots[i])-2));}
@@ -847,7 +861,7 @@ addEventListener("keydown",e=>{
 /* ==========================================================================
    LANE A · E8 LAYER-HOST SOCKET  (dispatch E8-LANE-A-HOST-001)
    ADDITIVE-ONLY. Implements Layer-Host Contract v0.1 + COOP Amendments A/B/C.
-   FROZEN & read-only to layers: buildRoots() / proj0 / [U,V] / V1-V13 CHECKS.
+   FROZEN & read-only to layers: E8-kernel roots / proj0 / [U,V] / V1-V13 CHECKS.
    The base's live fx/fy (which pick() at the picker consumes) is NEVER handed
    to a layer — layers receive a read-only per-frame snapshot accessor.
    ========================================================================== */
@@ -1008,7 +1022,7 @@ registerLayer({
          darkens that one layer, base + siblings survive (fail-dark clean).
      C — each layer carries a V14+ self-check that is DISPLAY-ONLY; a failing
          check forces THAT layer dark and NEVER feeds base ALL_GREEN.
-   Membership is COMPUTED from the frozen base (buildRoots/dot/ringOf/Cox),
+   Membership is COMPUTED from the frozen base (E8-kernel roots/dot/ringOf/Cox),
    never hand-typed. Derivations + counts + §12 fork rulings + demo hooks:
    see out/ILLUMINATOR_BUILD_NOTES.md and out/compute_membership.js.
    ========================================================================== */
