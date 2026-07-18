@@ -63,9 +63,9 @@
       py[i] = cy - (x * sin + y * cos) * scale;
     }
 
-    // edges — batched single path, one stroke (fast even at 6720 lines). Faint gold web.
-    ctx.lineWidth = Math.max(0.5, dpr * 0.6);
-    ctx.strokeStyle = 'rgba(176,141,87,0.05)';
+    // edges — WEIGHT (Root's ruling): thick, structural lattice lines, drawn not breathed on. Batched single path (fast even at 6720).
+    ctx.lineWidth = Math.max(1.0, dpr * 1.1);
+    ctx.strokeStyle = 'rgba(176,141,87,0.11)';
     ctx.beginPath();
     for (var e = 0; e < edgePairs.length; e++) {
       var a = edgePairs[e][0], b = edgePairs[e][1];

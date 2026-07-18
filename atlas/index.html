@@ -208,6 +208,9 @@
 <script type="module">
 import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';                 // WEIGHT (Root's ruling): WebGL LineBasicMaterial is 1px-capped on Windows GPUs; fat lines need Line2
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 
 // ═══ INSTRUMENT THE BLINDNESS (FIX-022) ═══
 const errStrip = document.getElementById('errstrip'); let errCount = 0;
@@ -314,9 +317,11 @@ const edgeGeo = new THREE.BufferGeometry();
 edgeGeo.setAttribute('position', new THREE.BufferAttribute(_edgePos,3));
 const _edgeCol = new Float32Array(D.sorted.length*6);                                       // DEPTH-SHADE (Rider 4): per-vertex edge colour by z
 edgeGeo.setAttribute('color', new THREE.BufferAttribute(_edgeCol,3));                        // static attribute → ZERO per-frame cost (fps unchanged); 3D reads because FAR recedes, not because NEAR blobs
-const _eNear=new THREE.Color(0xF6E4B0), _eFar=new THREE.Color(0x22344F);                     // near = warm + bright gold-cream · far = cool + dim slate
+const _eNear=new THREE.Color(0xF6E4B0), _eFar=new THREE.Color(0x6B5230);                     // WEIGHT ruling: depth kept ONLY as brightness within the gold family (near bright gold-cream → far dim gold). The off-palette blue was killed — it read as colour, not weight, and fought prominence.
+const fatEdgeGeo = new LineSegmentsGeometry();                                               // WEIGHT: the fat-line geometry the LineSegments2 instances render (real pixel thickness)
 function writeEdgePositions(){ const E=D.sorted; for(let k=0;k<E.length;k++){ const a=D.nodes[E[k][0]], b=D.nodes[E[k][1]];
-  _edgePos[k*6]=a.px;_edgePos[k*6+1]=a.py;_edgePos[k*6+2]=a.pz; _edgePos[k*6+3]=b.px;_edgePos[k*6+4]=b.py;_edgePos[k*6+5]=b.pz; } edgeGeo.attributes.position.needsUpdate=true; }
+  _edgePos[k*6]=a.px;_edgePos[k*6+1]=a.py;_edgePos[k*6+2]=a.pz; _edgePos[k*6+3]=b.px;_edgePos[k*6+4]=b.py;_edgePos[k*6+5]=b.pz; } edgeGeo.attributes.position.needsUpdate=true;
+  fatEdgeGeo.setPositions(_edgePos); }   // instanceCount (edge-count) is set by applyEdgeCount, which always follows this
 function writeEdgeColors(){ const E=D.sorted; let zmin=Infinity,zmax=-Infinity;
   for(let i=0;i<D.nodes.length;i++){ const z=D.nodes[i].pz; if(z<zmin)zmin=z; if(z>zmax)zmax=z; } const span=(zmax-zmin)||1;
   for(let k=0;k<E.length;k++){ const a=D.nodes[E[k][0]], b=D.nodes[E[k][1]];
@@ -324,10 +329,10 @@ function writeEdgeColors(){ const E=D.sorted; let zmin=Infinity,zmax=-Infinity;
     ta=Math.pow(ta,1.35); tb=Math.pow(tb,1.35);                                              // 0 = far → 1 = near; gamma biases the fade so near pops and far recedes
     _edgeCol[k*6]=_eFar.r+(_eNear.r-_eFar.r)*ta; _edgeCol[k*6+1]=_eFar.g+(_eNear.g-_eFar.g)*ta; _edgeCol[k*6+2]=_eFar.b+(_eNear.b-_eFar.b)*ta;
     _edgeCol[k*6+3]=_eFar.r+(_eNear.r-_eFar.r)*tb; _edgeCol[k*6+4]=_eFar.g+(_eNear.g-_eFar.g)*tb; _edgeCol[k*6+5]=_eFar.b+(_eNear.b-_eFar.b)*tb; }
-  edgeGeo.attributes.color.needsUpdate=true; }
+  edgeGeo.attributes.color.needsUpdate=true; fatEdgeGeo.setColors(_edgeCol); }
 writeEdgePositions(); writeEdgeColors();
 let _edgeApplied = 800;   // last count pushed to drawRange (FIX-030 slider authority — no per-frame override)
-function applyEdgeCount(c){ _edgeApplied = Math.max(0, Math.min(D.sorted.length, Math.round(c))); edgeGeo.setDrawRange(0, _edgeApplied*2); document.getElementById('ec').textContent=_edgeApplied; }
+function applyEdgeCount(c){ _edgeApplied = Math.max(0, Math.min(D.sorted.length, Math.round(c))); edgeGeo.setDrawRange(0, _edgeApplied*2); fatEdgeGeo.instanceCount=_edgeApplied; document.getElementById('ec').textContent=_edgeApplied; }
 applyEdgeCount(lineCount);
 
 // ── RELATION-FAN linkage: the 56 gold edges from the selected root to its nearest (+1/60°) kin (card #1 "fanedges").
@@ -520,13 +525,14 @@ function makePtsMat(){ const m=new THREE.PointsMaterial({ size:2.4, map:SPRITE, 
 // POOL — two instances sharing geometry; opacity carries crossfade × star/line glow
 function makeInstance(){ const grp=new THREE.Group();
   const pmat=makePtsMat(); const pts=new THREE.Points(ptsGeo,pmat); pts.frustumCulled=false; grp.add(pts);
-  const lmat=new THREE.LineBasicMaterial({ vertexColors:true, transparent:true, opacity:0.5, depthWrite:false, blending:THREE.AdditiveBlending, fog:true });   // DEPTH-SHADE: per-vertex colour (near warm+bright / far cool+dim); base opacity up from 0.24 — the far-fade carries legibility so near can pop without a blob
-  const seg=new THREE.LineSegments(edgeGeo,lmat); seg.frustumCulled=false; seg.renderOrder=-1; grp.add(seg);
+  const lmat=new LineMaterial({ vertexColors:true, transparent:true, opacity:0.5, depthWrite:false, blending:THREE.AdditiveBlending, linewidth:2.4, worldUnits:false });   // WEIGHT: REAL pixel thickness via Line2 (WebGL LineBasicMaterial is 1px-capped); vertexColors keep the near-warm/far-cool depth read
+  lmat.resolution.set(innerWidth, innerHeight);
+  const seg=new LineSegments2(fatEdgeGeo,lmat); seg.frustumCulled=false; seg.renderOrder=-1; grp.add(seg);
   world.add(grp);
   return { grp, pts, seg, pmat, lmat, xf:1,
     setScale(ws){ pmat.userData.uWorldScale.value=ws; },
-    setOpacity(o){ this.xf=o; pmat.opacity=o*starI; lmat.opacity=0.24*o*lineI; },
-    reglow(){ pmat.opacity=this.xf*starI; lmat.opacity=0.24*this.xf*lineI; },
+    setOpacity(o){ this.xf=o; pmat.opacity=o*starI; lmat.opacity=0.42*o*lineI; },
+    reglow(){ pmat.opacity=this.xf*starI; lmat.opacity=0.42*this.xf*lineI; },
     show(v){ grp.visible=v; } }; }
 let field = makeInstance(); field.grp.position.copy(ORIGIN); field.grp.scale.setScalar(1); field.setScale(1); field.setOpacity(1); field.show(true);
 let spare = makeInstance(); spare.show(false);
@@ -846,7 +852,8 @@ function resize(){ const w=cwrap.clientWidth||innerWidth, h=cwrap.clientHeight||
   // FIX-036 idempotent: the container box is CSS-pinned, so setSize changes only the backing store. Skip when the
   // backing already matches box×dpr (>1px tolerance) — this is the loop-breaker: resize() called on a stable box is a no-op.
   if(Math.abs(canvas.width - Math.round(w*dpr))<=1 && Math.abs(canvas.height - Math.round(h*dpr))<=1) return;
-  renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); controls.handleResize(); }
+  renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); controls.handleResize();
+  [field,spare,transient].forEach(o=>{ if(o&&o.lmat&&o.lmat.resolution) o.lmat.resolution.set(w,h); }); }   // WEIGHT: fat-line resolution tracks the box so pixel thickness stays true
 addEventListener('resize', resize);
 // PRERENDER-PROOF (FIX-034) + SELF-HEALING (FIX-035): a browser-prerendered/bfcached doc can init at a stale or
 // 0×0 viewport, and event-based re-size can still miss it (Chrome's omnibox prerender clipped the apex through

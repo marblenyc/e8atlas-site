@@ -231,7 +231,7 @@ function frame(){
     if(isoShell>=0 && !(SHELL600[a]===isoShell&&SHELL600[b]===isoShell)) continue;
     const A=lastPts[a],B=lastPts[b],bl=(bright(pr[a])+bright(pr[b]))/2;
     ctx.strokeStyle=`rgba(${EDGE},${(thinEdges?0.06:0.10)+0.30*bl})`;
-    ctx.lineWidth=(thinEdges?0.3:0.5)+(thinEdges?0.5:1.0)*bl;
+    ctx.lineWidth=(thinEdges?0.7:1.1)+(thinEdges?0.8:1.6)*bl;   // WEIGHT (Root): thicker structural edges
     ctx.beginPath();ctx.moveTo(A[0],A[1]);ctx.lineTo(B[0],B[1]);ctx.stroke();}}
 
   // vertices — depth-lit; optional shell coloring

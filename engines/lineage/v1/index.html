@@ -447,15 +447,15 @@ function frame(now){
   /* edges */
   if(edgeOp>0.002){
     if(selected>=0){
-      ctx.strokeStyle=`rgba(98,116,143,${edgeOp*.35})`;ctx.lineWidth=.5;ctx.beginPath();
+      ctx.strokeStyle=`rgba(98,116,143,${edgeOp*.35})`;ctx.lineWidth=1.0;ctx.beginPath();
       for(const[a,b]of edgePairs){if(a===selected||b===selected)continue;
         ctx.moveTo(px[a],py[a]);ctx.lineTo(px[b],py[b]);}
       ctx.stroke();
-      ctx.strokeStyle=`rgba(244,240,230,${Math.min(edgeOp*3.4,.95)})`;ctx.lineWidth=1.1;ctx.beginPath();
+      ctx.strokeStyle=`rgba(244,240,230,${Math.min(edgeOp*3.4,.95)})`;ctx.lineWidth=1.9;ctx.beginPath();
       for(const n of adj[selected]){ctx.moveTo(px[selected],py[selected]);ctx.lineTo(px[n],py[n]);}
       ctx.stroke();
     }else if(cmode==="family"){
-      ctx.lineWidth=.55;
+      ctx.lineWidth=1.1;
       ctx.strokeStyle=`rgba(74,158,255,${edgeOp})`;ctx.beginPath();
       for(const[a,b]of edgePairs)if(a<112&&b<112){ctx.moveTo(px[a],py[a]);ctx.lineTo(px[b],py[b]);}
       ctx.stroke();
