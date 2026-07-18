@@ -12,9 +12,26 @@
   .mast{position:fixed;top:18px;left:24px;z-index:5;pointer-events:none}
   .mast h1{margin:0;font-size:26px;letter-spacing:.14em;color:var(--bright);font-weight:600}
   .mast .sub{font-size:12px;letter-spacing:.28em;color:var(--gold);opacity:.85;margin-top:2px}
-  .panel{position:fixed;top:18px;right:18px;z-index:5;background:rgba(10,16,34,.72);
-    border:1px solid rgba(176,141,87,.35);border-radius:10px;padding:12px 14px;backdrop-filter:blur(6px);
-    box-shadow:inset 0 1px 0 rgba(233,200,122,.35), 0 8px 24px rgba(0,0,0,.4);min-width:214px}
+  /* MENU (Root's redesign): collapsed = a hamburger; open = a CONTAINED float upper-right that cascades
+     within itself and scrolls — never spans the page, never welds to the edge, never eats the lattice. */
+  .menu-toggle{position:fixed;top:16px;right:16px;z-index:7;width:42px;height:42px;border-radius:10px;
+    background:rgba(10,16,34,.72);border:1px solid rgba(176,141,87,.5);backdrop-filter:blur(6px);cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+    box-shadow:inset 0 1px 0 rgba(233,200,122,.35), 0 6px 18px rgba(0,0,0,.45);transition:background .15s}
+  .menu-toggle:hover{background:rgba(176,141,87,.22)}
+  .menu-toggle span{display:block;width:18px;height:2px;background:var(--bright);border-radius:2px;transition:transform .2s,opacity .2s}
+  .menu-toggle.open span:nth-child(1){transform:translateY(6px) rotate(45deg)}
+  .menu-toggle.open span:nth-child(2){opacity:0}
+  .menu-toggle.open span:nth-child(3){transform:translateY(-6px) rotate(-45deg)}
+  .panel{position:fixed;top:66px;right:16px;z-index:6;background:rgba(10,16,34,.82);
+    border:1px solid rgba(176,141,87,.35);border-radius:10px;padding:12px 14px;backdrop-filter:blur(7px);
+    box-shadow:inset 0 1px 0 rgba(233,200,122,.35), 0 12px 34px rgba(0,0,0,.5);
+    width:250px;max-height:calc(100vh - 90px);overflow-y:auto;overflow-x:hidden;
+    scrollbar-width:thin;scrollbar-color:rgba(176,141,87,.45) transparent;
+    opacity:0;transform:translateX(16px) scale(.98);pointer-events:none;transition:opacity .18s ease,transform .18s ease}
+  .panel.open{opacity:1;transform:none;pointer-events:auto}
+  .panel::-webkit-scrollbar{width:6px}.panel::-webkit-scrollbar-thumb{background:rgba(176,141,87,.42);border-radius:3px}.panel::-webkit-scrollbar-track{background:transparent}
+  @media(max-width:520px){.panel{width:calc(100vw - 32px)}}
   .panel h2{margin:0 0 8px;font-size:11px;letter-spacing:.22em;color:var(--gold);text-transform:uppercase;font-weight:600}
   .row{display:flex;align-items:center;justify-content:space-between;margin:7px 0;font-size:13px}
   .seg{display:inline-flex;border:1px solid rgba(176,141,87,.4);border-radius:6px;overflow:hidden}
@@ -108,7 +125,8 @@
 <div class="errstrip" id="errstrip"></div>
 <div id="cwrap"><canvas id="c"></canvas></div>
 <div class="mast"><h1>E8&nbsp;ATLAS</h1><div class="sub">AN INSTRUMENT FOR LOOKING AT E8</div></div>
-<div class="panel">
+<button class="menu-toggle" id="menuToggle" aria-label="Controls" title="Controls"><span></span><span></span><span></span></button>
+<div class="panel" id="panel">
   <h2>GeoForge · E8</h2>
   <details class="fine" open>
     <summary>Display</summary>
@@ -120,7 +138,7 @@
     <div class="row"><span>Relation&nbsp;Fan</span><span class="seg" id="fan"><button data-v="off" class="on">Off</button><button data-v="on">On</button></span></div>
     <div class="mrow" style="margin-top:8px"><button class="mbtn" id="navUp" style="flex:1" title="ascend a level (PgUp)">▲ Ascend</button><button class="mbtn" id="navDown" style="flex:1" title="descend a level (PgDn)">▼ Descend</button></div>
   </details>
-  <details class="fine" open>
+  <details class="fine">
     <summary>Fine Control</summary>
     <div class="frow"><span>Star glow</span><input type="range" id="sStarI" min="0.3" max="2.6" step="0.05" value="1"><b id="vStarI">1.0</b></div>
     <div class="frow"><span>Star size</span><input type="range" id="sStarS" min="0.4" max="2.6" step="0.05" value="1"><b id="vStarS">1.0</b></div>
@@ -294,9 +312,20 @@ writePositions(); writeColors();
 const _edgePos = new Float32Array(D.sorted.length*6);
 const edgeGeo = new THREE.BufferGeometry();
 edgeGeo.setAttribute('position', new THREE.BufferAttribute(_edgePos,3));
+const _edgeCol = new Float32Array(D.sorted.length*6);                                       // DEPTH-SHADE (Rider 4): per-vertex edge colour by z
+edgeGeo.setAttribute('color', new THREE.BufferAttribute(_edgeCol,3));                        // static attribute → ZERO per-frame cost (fps unchanged); 3D reads because FAR recedes, not because NEAR blobs
+const _eNear=new THREE.Color(0xF6E4B0), _eFar=new THREE.Color(0x22344F);                     // near = warm + bright gold-cream · far = cool + dim slate
 function writeEdgePositions(){ const E=D.sorted; for(let k=0;k<E.length;k++){ const a=D.nodes[E[k][0]], b=D.nodes[E[k][1]];
   _edgePos[k*6]=a.px;_edgePos[k*6+1]=a.py;_edgePos[k*6+2]=a.pz; _edgePos[k*6+3]=b.px;_edgePos[k*6+4]=b.py;_edgePos[k*6+5]=b.pz; } edgeGeo.attributes.position.needsUpdate=true; }
-writeEdgePositions();
+function writeEdgeColors(){ const E=D.sorted; let zmin=Infinity,zmax=-Infinity;
+  for(let i=0;i<D.nodes.length;i++){ const z=D.nodes[i].pz; if(z<zmin)zmin=z; if(z>zmax)zmax=z; } const span=(zmax-zmin)||1;
+  for(let k=0;k<E.length;k++){ const a=D.nodes[E[k][0]], b=D.nodes[E[k][1]];
+    let ta=(a.pz-zmin)/span, tb=(b.pz-zmin)/span; if(ta<0)ta=0;if(ta>1)ta=1;if(tb<0)tb=0;if(tb>1)tb=1;
+    ta=Math.pow(ta,1.35); tb=Math.pow(tb,1.35);                                              // 0 = far → 1 = near; gamma biases the fade so near pops and far recedes
+    _edgeCol[k*6]=_eFar.r+(_eNear.r-_eFar.r)*ta; _edgeCol[k*6+1]=_eFar.g+(_eNear.g-_eFar.g)*ta; _edgeCol[k*6+2]=_eFar.b+(_eNear.b-_eFar.b)*ta;
+    _edgeCol[k*6+3]=_eFar.r+(_eNear.r-_eFar.r)*tb; _edgeCol[k*6+4]=_eFar.g+(_eNear.g-_eFar.g)*tb; _edgeCol[k*6+5]=_eFar.b+(_eNear.b-_eFar.b)*tb; }
+  edgeGeo.attributes.color.needsUpdate=true; }
+writeEdgePositions(); writeEdgeColors();
 let _edgeApplied = 800;   // last count pushed to drawRange (FIX-030 slider authority — no per-frame override)
 function applyEdgeCount(c){ _edgeApplied = Math.max(0, Math.min(D.sorted.length, Math.round(c))); edgeGeo.setDrawRange(0, _edgeApplied*2); document.getElementById('ec').textContent=_edgeApplied; }
 applyEdgeCount(lineCount);
@@ -491,7 +520,7 @@ function makePtsMat(){ const m=new THREE.PointsMaterial({ size:2.4, map:SPRITE, 
 // POOL — two instances sharing geometry; opacity carries crossfade × star/line glow
 function makeInstance(){ const grp=new THREE.Group();
   const pmat=makePtsMat(); const pts=new THREE.Points(ptsGeo,pmat); pts.frustumCulled=false; grp.add(pts);
-  const lmat=new THREE.LineBasicMaterial({ color:0x8a6a3a, transparent:true, opacity:0.24, depthWrite:false, blending:THREE.AdditiveBlending, fog:true });
+  const lmat=new THREE.LineBasicMaterial({ vertexColors:true, transparent:true, opacity:0.5, depthWrite:false, blending:THREE.AdditiveBlending, fog:true });   // DEPTH-SHADE: per-vertex colour (near warm+bright / far cool+dim); base opacity up from 0.24 — the far-fade carries legibility so near can pop without a blob
   const seg=new THREE.LineSegments(edgeGeo,lmat); seg.frustumCulled=false; seg.renderOrder=-1; grp.add(seg);
   world.add(grp);
   return { grp, pts, seg, pmat, lmat, xf:1,
@@ -565,12 +594,12 @@ function frameIsCox(){ return D.frames[frameIdx].kind==='coxeter'; }
 function zLiftCox(x,y){ return (Math.hypot(x,y) - D.meta.r_id*0.5) * COX3D_ZK; }   // centred cone (mean radius → z≈0)
 function setView(mode){ if(mode==='coxeter3d' && !frameIsCox()) mode='globe';       // E7/E6 excluded per ruling (a)
   const prevView=curView; curView=mode; const cox=(mode==='coxeter3d');
-  if(mode!==prevView){ if(mode==='sphere'){ latticeOn=false; starsOn=false; } else { latticeOn=true; starsOn=true; }   // 008: entering Sphere hides lattice+stars (projection reading mode); leaving restores them
+  if(mode!==prevView){ latticeOn=true; starsOn=true;   // ONE-SCREEN fix: lattice + stars stay ON in every view (the Blue-Marble reading-mode that hid them is gone — nothing to hide behind)
     setSeg('s8lat', latticeOn?'on':'off'); setSeg('s8star', starsOn?'on':'off'); }
   D.nodes.forEach(n=>{ if(mode==='sphere'){ n.px=n.sx;n.py=n.sy;n.pz=n.sz; }
     else if(cox){ n.px=n.x; n.py=n.y; n.pz=zLiftCox(n.x,n.y); }
     else { n.px=n.x;n.py=n.y;n.pz=n.z; } });
-  writePositions(); writeEdgePositions(); applyEdgeCount(lineCount); writeFanEdges(); renderMap(); writePolyEdges(); buildProjector(false); applyLatticeStars();   // in-place; touches no instance .seg → null-safe at any dive phase
+  writePositions(); writeEdgePositions(); writeEdgeColors(); applyEdgeCount(lineCount); writeFanEdges(); renderMap(); writePolyEdges(); buildProjector(false); applyLatticeStars();   // in-place; touches no instance .seg → null-safe at any dive phase
   if(selId>=0){ const n=D.nodes[selId]; selRing.position.set(n.px,n.py,n.pz); } }
 // TIER 2 — projection-frame selection is the SOLE writer of the 3D basis. Reprojects all 240 roots from y2 (doubled
 // ints, root=y2/2) through frame (u,v,w)·s, then re-derives px/py/pz for the active view. Reprojection redefines the
@@ -770,6 +799,8 @@ addEventListener('keydown', e=>{ const t=e.target&&e.target.tagName; if(t==='INP
   else if(e.key==='ArrowLeft'){ e.preventDefault(); panBy(-1,0); } else if(e.key==='ArrowRight'){ e.preventDefault(); panBy(1,0); }
   else if(e.key==='ArrowUp'){ e.preventDefault(); panBy(0,1); } else if(e.key==='ArrowDown'){ e.preventDefault(); panBy(0,-1); } });
 syncViewUI();   // set initial Coxeter-3D button enabled-state for the default (Coxeter m1) frame
+{ const mt=document.getElementById('menuToggle'), pn=document.getElementById('panel');   // MENU: hamburger toggles the contained float upper-right
+  if(mt&&pn){ mt.onclick=()=>{ const o=pn.classList.toggle('open'); mt.classList.toggle('open',o); }; } }
 // ── Tier-3 polytope overlay UI ──
 const polySel=document.getElementById('polySel'), polyNote=document.getElementById('polyNote');
 Object.keys(D.poly).forEach(k=>{ const p=D.poly[k]; const o=document.createElement('option'); o.value=k;

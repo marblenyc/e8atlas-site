@@ -32,10 +32,11 @@
   #lattice-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
   .lattice-fallback-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
 
-  .lattice-overlay{position:absolute;left:0;right:0;bottom:0;padding:0 40px 64px;pointer-events:none;z-index:2;text-align:center;}
-  .lattice-word{font-family:var(--serif);font-weight:500;font-size:clamp(34px,6vw,68px);letter-spacing:.05em;color:#FFF6D8;text-shadow:0 0 38px rgba(176,141,87,.35);line-height:1;}
+  /* APEX (Rider 3): title/subtitle/CTA own a readable base; a soft bottom scrim lets the mandala show through above and stops the lattice lines striking through the words — pop, not cover. */
+  .lattice-overlay{position:absolute;left:0;right:0;bottom:0;padding:0 40px 58px;pointer-events:none;z-index:2;text-align:center;background:linear-gradient(to top, rgba(7,12,24,.9) 0%, rgba(7,12,24,.55) 18%, rgba(7,12,24,.22) 34%, rgba(7,12,24,0) 52%);}
+  .lattice-word{font-family:var(--serif);font-weight:500;font-size:clamp(34px,6vw,68px);letter-spacing:.05em;color:#FFF6D8;text-shadow:0 2px 26px rgba(7,12,24,.92), 0 0 40px rgba(176,141,87,.3);line-height:1;}
   .lattice-word .e8{font-style:italic;color:#E9C87A;}
-  .lattice-sub{margin-top:11px;font-family:var(--sans);font-weight:300;font-size:clamp(11px,1.6vw,15px);letter-spacing:.26em;text-transform:uppercase;color:#b7a079;}
+  .lattice-sub{margin-top:11px;font-family:var(--sans);font-weight:300;font-size:clamp(11px,1.6vw,15px);letter-spacing:.26em;text-transform:uppercase;color:#cbb488;text-shadow:0 1px 18px rgba(7,12,24,.95);}
   .lattice-cta{display:inline-block;margin-top:22px;pointer-events:auto;font-family:var(--sans);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#E9C87A;text-decoration:none;border:1px solid rgba(176,141,87,.55);border-radius:7px;padding:11px 20px;background:rgba(7,12,24,.4);transition:color .2s ease,background .2s ease;}
   .lattice-cta:hover{color:#070C18;background:#E9C87A;border-color:#E9C87A;}
 
@@ -58,10 +59,10 @@
   <noscript><img src="/og-lattice.png" alt="The E8 root system — 240 roots projected on the Coxeter plane" class="lattice-fallback-img"></noscript>
   <div class="view-switch" role="group" aria-label="Choose flat or three-dimensional view">
     <div class="vs-pill">
-      <button class="vs-btn is-active" data-mode="2d" aria-label="Flat view" title="Flat view">
+      <button class="vs-btn" data-mode="2d" aria-label="Flat view" title="Flat view">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.4"/></svg>
       </button>
-      <button class="vs-btn" data-mode="3d" aria-label="Three-dimensional view" title="3D view">
+      <button class="vs-btn is-active" data-mode="3d" aria-label="Three-dimensional view" title="3D view">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><ellipse cx="12" cy="12" rx="8.5" ry="3.4"/><ellipse cx="12" cy="12" rx="3.4" ry="8.5"/></svg>
       </button>
     </div>
@@ -93,7 +94,7 @@
     function resize(){ var r=host.getBoundingClientRect(); W=Math.max(1,r.width|0); H=Math.max(1,r.height|0);
       cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px'; ctx.setTransform(dpr,0,0,dpr,0,0); }
     resize();
-    var A0=0.19, SPEED=0.06, mode='2d';
+    var A0=0.19, SPEED=0.06, mode='3d';   // ONE-SCREEN: the depth path is the cold-load default (the "3D plus effect"); the flat toggle remains
 
     /* ---- 3D path: the projection is READ from L2, never authored here. GOLD palette, matched to 2D. ---- */
     var D=null;
@@ -124,10 +125,13 @@
       for(i=0;i<240;i++){ if(sz[i]<zmin)zmin=sz[i]; if(sz[i]>zmax)zmax=sz[i]; }
       var zr=(zmax-zmin)||1;
       ctx.globalCompositeOperation='lighter';
-      /* edges: one batched path (fast), faint additive gold web */
-      ctx.strokeStyle='rgba(176,141,87,0.045)'; ctx.lineWidth=Math.max(0.4,dpr*0.5); ctx.beginPath();
-      for(i=0;i<d.E.length;i++){ var a2=d.E[i][0], b2=d.E[i][1]; ctx.moveTo(sx[a2],sy[a2]); ctx.lineTo(sx[b2],sy[b2]); }
-      ctx.stroke();
+      /* edges: DEPTH-BANDED (Rider 4) — near warm+brighter, far cool+dimmer; batched per band (fast, additive) */
+      ctx.lineWidth=Math.max(0.4,dpr*0.5);
+      var EB=[[0.00,0.34,'70,98,150',0.028],[0.34,0.67,'150,132,96',0.050],[0.67,1.01,'233,200,122',0.085]];
+      for(var bi=0;bi<3;bi++){ ctx.strokeStyle='rgba('+EB[bi][2]+','+EB[bi][3]+')'; ctx.beginPath();
+        for(i=0;i<d.E.length;i++){ var a2=d.E[i][0], b2=d.E[i][1], tm=((sz[a2]+sz[b2])*0.5-zmin)/zr;
+          if(tm>=EB[bi][0] && tm<EB[bi][1]){ ctx.moveTo(sx[a2],sy[a2]); ctx.lineTo(sx[b2],sy[b2]); } }
+        ctx.stroke(); }
       /* points: sorted back-to-front; near = larger+brighter, far = smaller+dimmer. Gold + sparse markers. */
       var ord=[]; for(i=0;i<240;i++)ord.push(i); ord.sort(function(p,q){return sz[p]-sz[q];});
       for(var o=0;o<240;o++){ i=ord[o];
